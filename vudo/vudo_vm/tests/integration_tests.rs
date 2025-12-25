@@ -766,13 +766,13 @@ fn test_fuel_metering_cumulative() {
     assert_eq!(sandbox.fuel_consumed, 0);
 
     // Execute multiple times
-    let result1 = sandbox.invoke("work", &[]).expect("Failed to invoke");
+    let _result1 = sandbox.invoke("work", &[]).expect("Failed to invoke");
     let fuel_after_1 = sandbox.fuel_consumed;
 
-    let result2 = sandbox.invoke("work", &[]).expect("Failed to invoke");
+    let _result2 = sandbox.invoke("work", &[]).expect("Failed to invoke");
     let fuel_after_2 = sandbox.fuel_consumed;
 
-    let result3 = sandbox.invoke("work", &[]).expect("Failed to invoke");
+    let _result3 = sandbox.invoke("work", &[]).expect("Failed to invoke");
     let fuel_after_3 = sandbox.fuel_consumed;
 
     // Fuel should be accumulating
@@ -1487,11 +1487,11 @@ fn test_float_operations() {
     let result = sandbox
         .invoke(
             "mul_f64",
-            &[Val::F64(3.14159_f64.to_bits()), Val::F64(2.0_f64.to_bits())],
+            &[Val::F64(std::f64::consts::PI.to_bits()), Val::F64(2.0_f64.to_bits())],
         )
         .expect("Failed to invoke");
     assert!(result.success);
     // unwrap_f64() returns f64 directly
     let product = result.return_value.as_ref().unwrap()[0].unwrap_f64();
-    assert!((product - 6.28318).abs() < 0.0001);
+    assert!((product - std::f64::consts::TAU).abs() < 0.0001);
 }

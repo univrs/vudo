@@ -90,7 +90,7 @@ impl PricingModel {
 
     /// Calculate total cost for an execution
     pub fn calculate_cost(&self, metrics: &ExecutionMetrics) -> CreditCost {
-        let fuel_cost = (metrics.fuel_consumed as u64 * self.per_fuel_cost) / 1000;
+        let fuel_cost = (metrics.fuel_consumed * self.per_fuel_cost) / 1000;
         let memory_cost = metrics.peak_memory * self.per_memory_byte_cost;
         let storage_read_cost = metrics.storage_reads as u64 * self.per_storage_read_cost;
         let storage_write_cost = metrics.storage_writes as u64 * self.per_storage_write_cost;

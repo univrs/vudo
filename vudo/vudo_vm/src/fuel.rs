@@ -586,9 +586,11 @@ mod tests {
 
     #[test]
     fn test_wasmtime_integration() {
-        use wasmtime::{Engine, Store};
+        use wasmtime::{Config, Engine, Store};
 
-        let engine = Engine::default();
+        let mut config = Config::new();
+        config.consume_fuel(true);
+        let engine = Engine::new(&config).unwrap();
         let mut store = Store::new(&engine, ());
         let manager = FuelManager::new(5000);
 
@@ -601,9 +603,11 @@ mod tests {
 
     #[test]
     fn test_sync_fuel_from_store() {
-        use wasmtime::{Engine, Store};
+        use wasmtime::{Config, Engine, Store};
 
-        let engine = Engine::default();
+        let mut config = Config::new();
+        config.consume_fuel(true);
+        let engine = Engine::new(&config).unwrap();
         let mut store = Store::new(&engine, ());
         let mut manager = FuelManager::new(1000);
 

@@ -101,13 +101,10 @@ impl CapabilityScope {
     /// Check if this scope covers (is broader than or equal to) another scope
     pub fn covers(&self, other: &CapabilityScope) -> bool {
         use CapabilityScope::*;
-        match (self, other) {
-            (Global, _) => true,
-            (Sandboxed, Sandboxed) => true,
-            (Peer, Peer) => true,
-            (Domain, Domain) => true,
-            _ => false,
-        }
+        matches!(
+            (self, other),
+            (Global, _) | (Sandboxed, Sandboxed) | (Peer, Peer) | (Domain, Domain)
+        )
     }
 
     /// Check if this scope is a subset of another scope
@@ -147,6 +144,7 @@ pub struct CapabilityGrant {
 
 impl CapabilityGrant {
     /// Create a new capability grant
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         id: u64,
         capability: CapabilityType,
@@ -271,7 +269,7 @@ impl CapabilitySet {
     pub fn add_grant(&mut self, grant: CapabilityGrant) {
         self.grants
             .entry(grant.capability)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(grant);
     }
 

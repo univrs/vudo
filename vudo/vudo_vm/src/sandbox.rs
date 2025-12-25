@@ -304,8 +304,10 @@ impl SandboxMetrics {
 
 /// Internal state holder for the Wasmtime store
 struct SandboxContext {
+    #[allow(dead_code)]
     fuel_consumed: u64,
     start_time: Option<Instant>,
+    #[allow(dead_code)]
     timeout: Duration,
 }
 

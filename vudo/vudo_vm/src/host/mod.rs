@@ -143,6 +143,7 @@ mod tests {
     use super::*;
     use crate::capability::MINIMAL_CAPABILITIES;
 
+    #[allow(dead_code)]
     fn create_minimal_capset() -> CapabilitySet {
         use std::time::{SystemTime, UNIX_EPOCH};
         let now = SystemTime::now()
@@ -167,6 +168,7 @@ mod tests {
         cap_set
     }
 
+    #[allow(dead_code)]
     fn create_unrestricted_capset() -> CapabilitySet {
         use std::time::{SystemTime, UNIX_EPOCH};
         let now = SystemTime::now()
