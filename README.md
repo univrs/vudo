@@ -25,7 +25,7 @@ This package contains the complete strategic vision and technical specification 
 ### The Two Vocabularies
 
 **For Developers (DOL Language):**
-- `function`, `type`, `module`, `import` — standard programming
+- `fun`, `type`, `module`, `import` — standard programming
 - `Gene`, `Trait`, `Constraint`, `System`, `Evolves` — ontological primitives
 
 **For Users (VUDO Platform):**
