@@ -2,7 +2,7 @@
 //!
 //! Provides cryptographically secure random number generation for WASM sandboxes.
 
-use super::{CapabilitySet, CapabilityType, CapabilityScope, HostCallResult};
+use super::{CapabilityScope, CapabilitySet, CapabilityType, HostCallResult};
 
 /// Maximum number of random bytes that can be requested in a single call
 const MAX_RANDOM_BYTES: u32 = 1024 * 1024; // 1MB

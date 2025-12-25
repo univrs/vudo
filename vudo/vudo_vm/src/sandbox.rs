@@ -363,14 +363,12 @@ impl Sandbox {
     /// - Resource limits validation
     ///
     /// The sandbox starts in Initializing state.
-    pub fn new(
-        wasm: &[u8],
-        owner: [u8; 32],
-        limits: ResourceLimits,
-    ) -> Result<Self, SandboxError> {
+    pub fn new(wasm: &[u8], owner: [u8; 32], limits: ResourceLimits) -> Result<Self, SandboxError> {
         // Validate module size
         if wasm.is_empty() {
-            return Err(SandboxError::InvalidModule("WASM module is empty".to_string()));
+            return Err(SandboxError::InvalidModule(
+                "WASM module is empty".to_string(),
+            ));
         }
 
         if wasm.len() > MAX_MODULE_SIZE {
@@ -404,7 +402,8 @@ impl Sandbox {
         let mut store = Store::new(&engine, context);
 
         // Set initial fuel
-        store.set_fuel(limits.max_fuel)
+        store
+            .set_fuel(limits.max_fuel)
             .map_err(|e| SandboxError::RuntimeError(format!("Failed to set fuel: {}", e)))?;
 
         let sandbox_id = Self::generate_id();
@@ -479,9 +478,10 @@ impl Sandbox {
 
         // Get or create instance
         if self.instance.is_none() {
-            let module = self.module.as_ref().ok_or_else(|| {
-                SandboxError::RuntimeError("Module not initialized".to_string())
-            })?;
+            let module = self
+                .module
+                .as_ref()
+                .ok_or_else(|| SandboxError::RuntimeError("Module not initialized".to_string()))?;
 
             let instance = Instance::new(&mut self.store, module, &[]).map_err(|e| {
                 self.state = SandboxState::Failed;
@@ -652,13 +652,16 @@ mod tests {
     #[test]
     fn test_sandbox_state_transitions() {
         // Create a minimal WASM module (empty module for testing)
-        let wasm = wat::parse_str(r#"
+        let wasm = wat::parse_str(
+            r#"
             (module
                 (func (export "test") (result i32)
                     i32.const 42
                 )
             )
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
 
         let owner = [0u8; 32];
         let limits = ResourceLimits::default();
@@ -672,7 +675,8 @@ mod tests {
 
     #[test]
     fn test_sandbox_execution() {
-        let wasm = wat::parse_str(r#"
+        let wasm = wat::parse_str(
+            r#"
             (module
                 (func (export "add") (param i32 i32) (result i32)
                     local.get 0
@@ -680,7 +684,9 @@ mod tests {
                     i32.add
                 )
             )
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
 
         let owner = [0u8; 32];
         let limits = ResourceLimits::default();

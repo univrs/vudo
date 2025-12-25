@@ -2,7 +2,7 @@
 //!
 //! Provides logging capabilities for WASM sandboxes.
 
-use super::{CapabilitySet, CapabilityType, CapabilityScope, HostCallResult};
+use super::{CapabilityScope, CapabilitySet, CapabilityType, HostCallResult};
 use std::fmt;
 
 /// Log level for host logging

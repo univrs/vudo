@@ -3,19 +3,31 @@
 //! Provides the host functions available to WASM sandboxes.
 //! All host functions are capability-gated and return HostCallResult.
 
-pub mod time;
-pub mod random;
+pub mod credit;
 pub mod log;
+pub mod network;
+pub mod random;
 pub mod storage;
+pub mod time;
 
 // Re-export capability types from parent module
-pub use crate::capability::{CapabilitySet, CapabilityType, CapabilityScope, CapabilityGrant};
+pub use crate::capability::{CapabilityGrant, CapabilityScope, CapabilitySet, CapabilityType};
 
 // Re-exports for convenience
-pub use time::host_time_now;
-pub use random::host_random_bytes;
+pub use credit::{
+    host_credit_available, host_credit_balance, host_credit_consume, host_credit_release,
+    host_credit_reserve, host_credit_transfer, CreditBackend, InMemoryCreditLedger, PublicKey,
+};
 pub use log::{host_log, LogLevel};
-pub use storage::{StorageBackend, InMemoryStorage, host_storage_read, host_storage_write, host_storage_delete};
+pub use network::{
+    host_network_broadcast, host_network_connect, host_network_listen, ConnectionHandle,
+    ListenerHandle, MockNetworkBackend, NetworkBackend,
+};
+pub use random::host_random_bytes;
+pub use storage::{
+    host_storage_delete, host_storage_read, host_storage_write, InMemoryStorage, StorageBackend,
+};
+pub use time::host_time_now;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // HOST CALL RESULT
@@ -86,6 +98,44 @@ pub trait HostInterface {
 
     /// Delete from storage
     fn host_storage_delete(&self, caps: &CapabilitySet, key: &[u8]) -> HostCallResult;
+
+    /// Connect to a network address
+    fn host_network_connect(&self, caps: &CapabilitySet, address: &str) -> HostCallResult;
+
+    /// Listen on a network port
+    fn host_network_listen(&self, caps: &CapabilitySet, port: u16) -> HostCallResult;
+
+    /// Broadcast a message to connected peers
+    fn host_network_broadcast(&self, caps: &CapabilitySet, message: &[u8]) -> HostCallResult;
+
+    /// Get credit balance for an account
+    fn host_credit_balance(&self, caps: &CapabilitySet, account: &[u8; 32]) -> HostCallResult;
+
+    /// Transfer credits between accounts
+    fn host_credit_transfer(
+        &self,
+        caps: &CapabilitySet,
+        from: &[u8; 32],
+        to: &[u8; 32],
+        amount: u64,
+    ) -> HostCallResult;
+
+    /// Reserve credits for a pending operation
+    fn host_credit_reserve(
+        &self,
+        caps: &CapabilitySet,
+        account: &[u8; 32],
+        amount: u64,
+    ) -> HostCallResult;
+
+    /// Release a credit reservation
+    fn host_credit_release(&self, caps: &CapabilitySet, reservation_id: u64) -> HostCallResult;
+
+    /// Consume a credit reservation (permanently deduct)
+    fn host_credit_consume(&self, caps: &CapabilitySet, reservation_id: u64) -> HostCallResult;
+
+    /// Get available credit balance (total - reserved)
+    fn host_credit_available(&self, caps: &CapabilitySet, account: &[u8; 32]) -> HostCallResult;
 }
 
 #[cfg(test)]

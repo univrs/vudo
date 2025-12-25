@@ -322,7 +322,10 @@ impl CapabilitySet {
                 }
 
                 // If any grant has Global scope, return Global
-                if valid_grants.iter().any(|g| g.scope == CapabilityScope::Global) {
+                if valid_grants
+                    .iter()
+                    .any(|g| g.scope == CapabilityScope::Global)
+                {
                     return Some(CapabilityScope::Global);
                 }
 
@@ -475,18 +478,9 @@ mod tests {
         let mut cap_set = CapabilitySet::new();
         cap_set.add_grant(grant);
 
-        assert!(cap_set.has_capability(
-            CapabilityType::NetworkConnect,
-            CapabilityScope::Global
-        ));
-        assert!(cap_set.has_capability(
-            CapabilityType::NetworkConnect,
-            CapabilityScope::Sandboxed
-        ));
-        assert!(!cap_set.has_capability(
-            CapabilityType::NetworkListen,
-            CapabilityScope::Global
-        ));
+        assert!(cap_set.has_capability(CapabilityType::NetworkConnect, CapabilityScope::Global));
+        assert!(cap_set.has_capability(CapabilityType::NetworkConnect, CapabilityScope::Sandboxed));
+        assert!(!cap_set.has_capability(CapabilityType::NetworkListen, CapabilityScope::Global));
     }
 
     #[test]
@@ -507,18 +501,9 @@ mod tests {
         cap_set.add_grant(grant);
 
         // Unrestricted should grant access to any capability
-        assert!(cap_set.has_capability(
-            CapabilityType::NetworkConnect,
-            CapabilityScope::Global
-        ));
-        assert!(cap_set.has_capability(
-            CapabilityType::StorageWrite,
-            CapabilityScope::Sandboxed
-        ));
-        assert!(cap_set.has_capability(
-            CapabilityType::SpawnSandbox,
-            CapabilityScope::Global
-        ));
+        assert!(cap_set.has_capability(CapabilityType::NetworkConnect, CapabilityScope::Global));
+        assert!(cap_set.has_capability(CapabilityType::StorageWrite, CapabilityScope::Sandboxed));
+        assert!(cap_set.has_capability(CapabilityType::SpawnSandbox, CapabilityScope::Global));
     }
 
     #[test]
@@ -542,10 +527,7 @@ mod tests {
             cap_set.effective_scope(CapabilityType::NetworkConnect),
             Some(CapabilityScope::Global)
         );
-        assert_eq!(
-            cap_set.effective_scope(CapabilityType::NetworkListen),
-            None
-        );
+        assert_eq!(cap_set.effective_scope(CapabilityType::NetworkListen), None);
     }
 
     #[test]

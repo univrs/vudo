@@ -2,7 +2,7 @@
 //!
 //! Provides time-related host functions for WASM sandboxes.
 
-use super::{CapabilitySet, CapabilityType, CapabilityScope, HostCallResult};
+use super::{CapabilityScope, CapabilitySet, CapabilityType, HostCallResult};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Get current Unix timestamp in nanoseconds

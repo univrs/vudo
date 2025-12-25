@@ -224,13 +224,13 @@ impl FuelManager {
             });
         }
 
-        let new_remaining = self
-            .remaining_fuel
-            .checked_add(amount)
-            .ok_or(FuelError::OverLimit {
-                requested: amount,
-                max: MAX_FUEL,
-            })?;
+        let new_remaining =
+            self.remaining_fuel
+                .checked_add(amount)
+                .ok_or(FuelError::OverLimit {
+                    requested: amount,
+                    max: MAX_FUEL,
+                })?;
 
         if new_remaining > MAX_FUEL {
             return Err(FuelError::OverLimit {
@@ -420,9 +420,7 @@ pub fn configure_store_with_fuel<T>(store: &mut Store<T>, fuel: u64) {
 /// ```
 pub fn sync_fuel_from_store<T>(store: &Store<T>, manager: &mut FuelManager) -> u64 {
     // Get current fuel from store
-    let store_fuel = store
-        .get_fuel()
-        .expect("fuel not enabled in store");
+    let store_fuel = store.get_fuel().expect("fuel not enabled in store");
 
     // Calculate how much was consumed
     let previous_remaining = manager.remaining();

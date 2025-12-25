@@ -34,12 +34,9 @@ pub use limits::ResourceLimits;
 
 // Re-export capability types for convenience
 pub use capability::{
-    CapabilitySet, CapabilityType, CapabilityScope, CapabilityGrant,
-    MINIMAL_CAPABILITIES, NETWORK_SPIRIT_CAPABILITIES, SYSTEM_SPIRIT_CAPABILITIES,
+    CapabilityGrant, CapabilityScope, CapabilitySet, CapabilityType, MINIMAL_CAPABILITIES,
+    NETWORK_SPIRIT_CAPABILITIES, SYSTEM_SPIRIT_CAPABILITIES,
 };
 
 // Re-export host interface types for convenience
-pub use host::{
-    HostCallResult, HostInterface,
-    LogLevel, StorageBackend, InMemoryStorage,
-};
+pub use host::{HostCallResult, HostInterface, InMemoryStorage, LogLevel, StorageBackend};

@@ -2,7 +2,7 @@
 //!
 //! Provides persistent storage capabilities for WASM sandboxes.
 
-use super::{CapabilitySet, CapabilityType, CapabilityScope, HostCallResult};
+use super::{CapabilityScope, CapabilitySet, CapabilityType, HostCallResult};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
@@ -75,13 +75,19 @@ impl StorageBackend for InMemoryStorage {
     }
 
     fn write(&self, key: &[u8], value: &[u8]) -> Result<(), String> {
-        let mut data = self.data.write().map_err(|e| format!("Lock error: {}", e))?;
+        let mut data = self
+            .data
+            .write()
+            .map_err(|e| format!("Lock error: {}", e))?;
         data.insert(key.to_vec(), value.to_vec());
         Ok(())
     }
 
     fn delete(&self, key: &[u8]) -> Result<bool, String> {
-        let mut data = self.data.write().map_err(|e| format!("Lock error: {}", e))?;
+        let mut data = self
+            .data
+            .write()
+            .map_err(|e| format!("Lock error: {}", e))?;
         Ok(data.remove(key).is_some())
     }
 
@@ -91,7 +97,10 @@ impl StorageBackend for InMemoryStorage {
     }
 
     fn clear(&self) -> Result<(), String> {
-        let mut data = self.data.write().map_err(|e| format!("Lock error: {}", e))?;
+        let mut data = self
+            .data
+            .write()
+            .map_err(|e| format!("Lock error: {}", e))?;
         data.clear();
         Ok(())
     }
