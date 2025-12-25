@@ -13,3 +13,5 @@ tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 thiserror = "1"
 toml = "0.8"
+sha2 = "0.10"
+serde-big-array = "0.5"
