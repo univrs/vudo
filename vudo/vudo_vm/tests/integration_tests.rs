@@ -1487,7 +1487,10 @@ fn test_float_operations() {
     let result = sandbox
         .invoke(
             "mul_f64",
-            &[Val::F64(std::f64::consts::PI.to_bits()), Val::F64(2.0_f64.to_bits())],
+            &[
+                Val::F64(std::f64::consts::PI.to_bits()),
+                Val::F64(2.0_f64.to_bits()),
+            ],
         )
         .expect("Failed to invoke");
     assert!(result.success);

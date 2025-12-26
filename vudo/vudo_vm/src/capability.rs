@@ -267,10 +267,7 @@ impl CapabilitySet {
 
     /// Add a grant to this capability set
     pub fn add_grant(&mut self, grant: CapabilityGrant) {
-        self.grants
-            .entry(grant.capability)
-            .or_default()
-            .push(grant);
+        self.grants.entry(grant.capability).or_default().push(grant);
     }
 
     /// Remove a grant by ID
