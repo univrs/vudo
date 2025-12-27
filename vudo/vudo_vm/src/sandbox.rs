@@ -416,12 +416,14 @@ impl Sandbox {
         let linker = create_linker(&engine);
 
         // Create HostState with all backends and capabilities
+        // The owner's public key is used as the account for credit operations
         let host_state = HostState::new(
             storage,
             credit,
             network,
             capability_set,
             limits.max_duration,
+            owner,
         );
 
         // Create store with HostState

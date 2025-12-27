@@ -133,13 +133,22 @@ pub struct HostState {
 }
 
 impl HostState {
-    /// Create a new HostState with the given backends and capabilities
+    /// Create a new HostState with the given backends and capabilities.
+    ///
+    /// # Arguments
+    /// * `storage` - Storage backend for read/write/delete operations
+    /// * `credit` - Credit ledger for resource accounting
+    /// * `network` - Network backend for connection/listen/broadcast operations
+    /// * `capabilities` - Capability set defining allowed operations
+    /// * `timeout` - Maximum duration allowed for execution
+    /// * `account` - The Ed25519 public key identifying this sandbox's account
     pub fn new(
         storage: Arc<dyn StorageBackend>,
         credit: Arc<dyn CreditBackend>,
         network: Arc<dyn NetworkBackend>,
         capabilities: CapabilitySet,
         timeout: Duration,
+        account: PublicKey,
     ) -> Self {
         Self {
             storage,
@@ -149,6 +158,8 @@ impl HostState {
             fuel_consumed: 0,
             start_time: None,
             timeout,
+            account,
+            memory: None,
         }
     }
 
@@ -169,6 +180,24 @@ impl HostState {
     /// Get elapsed time since execution started
     pub fn elapsed(&self) -> Option<Duration> {
         self.start_time.map(|start| start.elapsed())
+    }
+
+    /// Set the WASM memory reference.
+    ///
+    /// This should be called after module instantiation to enable
+    /// host functions that need to read/write WASM linear memory.
+    pub fn set_memory(&mut self, memory: Memory) {
+        self.memory = Some(memory);
+    }
+
+    /// Get a reference to the WASM memory, if set.
+    pub fn memory(&self) -> Option<&Memory> {
+        self.memory.as_ref()
+    }
+
+    /// Get the account (Ed25519 public key) associated with this sandbox.
+    pub fn account(&self) -> &PublicKey {
+        &self.account
     }
 }
 
@@ -762,8 +791,10 @@ pub fn create_linker(engine: &Engine) -> Linker<HostState> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::capability::{CapabilityGrant, CapabilityScope, CapabilityType};
     use crate::host::{InMemoryCreditLedger, InMemoryStorage, MockNetworkBackend};
-    use wasmtime::Config;
+    use std::time::{SystemTime, UNIX_EPOCH};
+    use wasmtime::{Config, Module, Store};
 
     fn create_test_host_state() -> HostState {
         let storage = Arc::new(InMemoryStorage::new());
@@ -771,9 +802,73 @@ mod tests {
         let network = Arc::new(MockNetworkBackend::new());
         let capabilities = CapabilitySet::new();
         let timeout = Duration::from_secs(30);
+        let account = [0u8; 32]; // Test account (zero key)
 
-        HostState::new(storage, credit, network, capabilities, timeout)
+        HostState::new(storage, credit, network, capabilities, timeout, account)
     }
+
+    fn create_host_state_with_capabilities(caps: &[CapabilityType]) -> HostState {
+        let storage = Arc::new(InMemoryStorage::new());
+        let credit = Arc::new(InMemoryCreditLedger::new());
+        let network = Arc::new(MockNetworkBackend::new());
+        let timeout = Duration::from_secs(30);
+        let account = [1u8; 32];
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_secs();
+
+        let mut capabilities = CapabilitySet::new();
+        for (i, &cap_type) in caps.iter().enumerate() {
+            let grant = CapabilityGrant::new(
+                i as u64 + 1,
+                cap_type,
+                CapabilityScope::Global,
+                [0u8; 32],
+                [1u8; 32],
+                now,
+                None,
+                [0u8; 64],
+            );
+            capabilities.add_grant(grant);
+        }
+
+        HostState::new(storage, credit, network, capabilities, timeout, account)
+    }
+
+    fn create_engine() -> Engine {
+        let mut config = Config::new();
+        config.consume_fuel(true);
+        Engine::new(&config).expect("Failed to create engine")
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // ERROR CODES TESTS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_error_codes_constants() {
+        assert_eq!(error_codes::SUCCESS, 0);
+        assert_eq!(error_codes::CAPABILITY_DENIED, -1);
+        assert_eq!(error_codes::INVALID_MEMORY, -2);
+        assert_eq!(error_codes::INVALID_PARAMETER, -3);
+        assert_eq!(error_codes::STORAGE_ERROR, -4);
+        assert_eq!(error_codes::NETWORK_ERROR, -5);
+        assert_eq!(error_codes::CREDIT_ERROR, -6);
+        assert_eq!(error_codes::BUFFER_TOO_SMALL, -7);
+        assert_eq!(error_codes::INTERNAL_ERROR, -8);
+    }
+
+    #[test]
+    fn test_host_error_and_success_constants() {
+        assert_eq!(HOST_ERROR, -1);
+        assert_eq!(HOST_SUCCESS, 0);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // HOST STATE TESTS
+    // ═══════════════════════════════════════════════════════════════════════════
 
     #[test]
     fn test_host_state_creation() {
@@ -803,25 +898,95 @@ mod tests {
     }
 
     #[test]
-    fn test_create_linker() {
-        let mut config = Config::new();
-        config.consume_fuel(true);
-        let engine = Engine::new(&config).expect("Failed to create engine");
+    fn test_host_state_timeout_detection() {
+        let storage = Arc::new(InMemoryStorage::new());
+        let credit = Arc::new(InMemoryCreditLedger::new());
+        let network = Arc::new(MockNetworkBackend::new());
+        let capabilities = CapabilitySet::new();
+        // Set a very short timeout
+        let timeout = Duration::from_millis(1);
+        let account = [0u8; 32];
 
+        let mut state = HostState::new(storage, credit, network, capabilities, timeout, account);
+
+        // Start execution
+        state.start_execution();
+
+        // Wait a bit longer than timeout
+        std::thread::sleep(Duration::from_millis(5));
+
+        // Should now be timed out
+        assert!(state.is_timed_out());
+    }
+
+    #[test]
+    fn test_host_state_memory_operations() {
+        let engine = create_engine();
+
+        // Create a module with memory
+        let wasm = wat::parse_str(
+            r#"
+            (module
+                (memory (export "memory") 1)
+            )
+        "#,
+        )
+        .expect("Failed to parse WAT");
+
+        let module = Module::new(&engine, &wasm).expect("Failed to compile module");
         let linker = create_linker(&engine);
 
-        // Linker should be created successfully
-        // We can't easily test more without a module to instantiate
+        let state = create_test_host_state();
+
+        // Memory should be None initially
+        assert!(state.memory().is_none());
+
+        let mut store = Store::new(&engine, state);
+        store.set_fuel(1_000_000).expect("Failed to set fuel");
+
+        let instance = linker
+            .instantiate(&mut store, &module)
+            .expect("Failed to instantiate module");
+
+        // Get and set memory
+        let memory = instance
+            .get_memory(&mut store, "memory")
+            .expect("Failed to get memory");
+
+        store.data_mut().set_memory(memory);
+
+        // Now memory should be Some
+        assert!(store.data().memory().is_some());
+    }
+
+    #[test]
+    fn test_host_state_account() {
+        let storage = Arc::new(InMemoryStorage::new());
+        let credit = Arc::new(InMemoryCreditLedger::new());
+        let network = Arc::new(MockNetworkBackend::new());
+        let capabilities = CapabilitySet::new();
+        let timeout = Duration::from_secs(30);
+        let account = [42u8; 32];
+
+        let state = HostState::new(storage, credit, network, capabilities, timeout, account);
+
+        assert_eq!(state.account(), &[42u8; 32]);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // LINKER CREATION TESTS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_create_linker() {
+        let engine = create_engine();
+        let linker = create_linker(&engine);
         drop(linker);
     }
 
     #[test]
     fn test_linker_with_simple_module() {
-        use wasmtime::{Module, Store};
-
-        let mut config = Config::new();
-        config.consume_fuel(true);
-        let engine = Engine::new(&config).expect("Failed to create engine");
+        let engine = create_engine();
 
         // Create a simple module with no imports
         let wasm = wat::parse_str(
@@ -842,12 +1007,10 @@ mod tests {
         let mut store = Store::new(&engine, state);
         store.set_fuel(1_000_000).expect("Failed to set fuel");
 
-        // Should be able to instantiate the module
         let instance = linker
             .instantiate(&mut store, &module)
             .expect("Failed to instantiate module");
 
-        // Get and call the exported function
         let answer = instance
             .get_typed_func::<(), i32>(&mut store, "answer")
             .expect("Failed to get function");
@@ -856,5 +1019,1235 @@ mod tests {
             .call(&mut store, ())
             .expect("Failed to call function");
         assert_eq!(result, 42);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // HOST_TIME_NOW TESTS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_host_time_now_with_capability() {
+        let engine = create_engine();
+
+        let wasm = wat::parse_str(
+            r#"
+            (module
+                (import "vudo" "host_time_now" (func $time_now (result i64)))
+                (func (export "get_time") (result i64)
+                    call $time_now
+                )
+            )
+        "#,
+        )
+        .expect("Failed to parse WAT");
+
+        let module = Module::new(&engine, &wasm).expect("Failed to compile module");
+        let linker = create_linker(&engine);
+
+        let state = create_host_state_with_capabilities(&[CapabilityType::SensorTime]);
+        let mut store = Store::new(&engine, state);
+        store.set_fuel(1_000_000).expect("Failed to set fuel");
+
+        let instance = linker
+            .instantiate(&mut store, &module)
+            .expect("Failed to instantiate module");
+
+        let get_time = instance
+            .get_typed_func::<(), i64>(&mut store, "get_time")
+            .expect("Failed to get function");
+
+        let result = get_time
+            .call(&mut store, ())
+            .expect("Failed to call function");
+
+        // Should return a positive timestamp (in nanoseconds)
+        assert!(result > 0);
+    }
+
+    #[test]
+    fn test_host_time_now_without_capability() {
+        let engine = create_engine();
+
+        let wasm = wat::parse_str(
+            r#"
+            (module
+                (import "vudo" "host_time_now" (func $time_now (result i64)))
+                (func (export "get_time") (result i64)
+                    call $time_now
+                )
+            )
+        "#,
+        )
+        .expect("Failed to parse WAT");
+
+        let module = Module::new(&engine, &wasm).expect("Failed to compile module");
+        let linker = create_linker(&engine);
+
+        // No capabilities
+        let state = create_test_host_state();
+        let mut store = Store::new(&engine, state);
+        store.set_fuel(1_000_000).expect("Failed to set fuel");
+
+        let instance = linker
+            .instantiate(&mut store, &module)
+            .expect("Failed to instantiate module");
+
+        let get_time = instance
+            .get_typed_func::<(), i64>(&mut store, "get_time")
+            .expect("Failed to get function");
+
+        let result = get_time
+            .call(&mut store, ())
+            .expect("Failed to call function");
+
+        // Should return -1 (error) without capability
+        assert_eq!(result, -1);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // HOST_RANDOM_BYTES TESTS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_host_random_bytes_with_capability() {
+        let engine = create_engine();
+
+        let wasm = wat::parse_str(
+            r#"
+            (module
+                (import "vudo" "host_random_bytes" (func $random (param i32 i32) (result i32)))
+                (memory (export "memory") 1)
+                (func (export "get_random") (result i32)
+                    ;; Request 8 random bytes at memory offset 0
+                    i32.const 0
+                    i32.const 8
+                    call $random
+                )
+                (func (export "read_byte") (param i32) (result i32)
+                    local.get 0
+                    i32.load8_u
+                )
+            )
+        "#,
+        )
+        .expect("Failed to parse WAT");
+
+        let module = Module::new(&engine, &wasm).expect("Failed to compile module");
+        let linker = create_linker(&engine);
+
+        let state = create_host_state_with_capabilities(&[CapabilityType::SensorRandom]);
+        let mut store = Store::new(&engine, state);
+        store.set_fuel(1_000_000).expect("Failed to set fuel");
+
+        let instance = linker
+            .instantiate(&mut store, &module)
+            .expect("Failed to instantiate module");
+
+        let get_random = instance
+            .get_typed_func::<(), i32>(&mut store, "get_random")
+            .expect("Failed to get function");
+
+        let result = get_random
+            .call(&mut store, ())
+            .expect("Failed to call function");
+
+        // Should return 0 (success)
+        assert_eq!(result, HOST_SUCCESS);
+    }
+
+    #[test]
+    fn test_host_random_bytes_zero_length() {
+        let engine = create_engine();
+
+        let wasm = wat::parse_str(
+            r#"
+            (module
+                (import "vudo" "host_random_bytes" (func $random (param i32 i32) (result i32)))
+                (memory (export "memory") 1)
+                (func (export "get_random_zero") (result i32)
+                    i32.const 0
+                    i32.const 0
+                    call $random
+                )
+            )
+        "#,
+        )
+        .expect("Failed to parse WAT");
+
+        let module = Module::new(&engine, &wasm).expect("Failed to compile module");
+        let linker = create_linker(&engine);
+
+        let state = create_host_state_with_capabilities(&[CapabilityType::SensorRandom]);
+        let mut store = Store::new(&engine, state);
+        store.set_fuel(1_000_000).expect("Failed to set fuel");
+
+        let instance = linker
+            .instantiate(&mut store, &module)
+            .expect("Failed to instantiate module");
+
+        let get_random = instance
+            .get_typed_func::<(), i32>(&mut store, "get_random_zero")
+            .expect("Failed to get function");
+
+        let result = get_random
+            .call(&mut store, ())
+            .expect("Failed to call function");
+
+        // Should return -1 (error) for zero/negative length
+        assert_eq!(result, HOST_ERROR);
+    }
+
+    #[test]
+    fn test_host_random_bytes_without_capability() {
+        let engine = create_engine();
+
+        let wasm = wat::parse_str(
+            r#"
+            (module
+                (import "vudo" "host_random_bytes" (func $random (param i32 i32) (result i32)))
+                (memory (export "memory") 1)
+                (func (export "get_random") (result i32)
+                    i32.const 0
+                    i32.const 8
+                    call $random
+                )
+            )
+        "#,
+        )
+        .expect("Failed to parse WAT");
+
+        let module = Module::new(&engine, &wasm).expect("Failed to compile module");
+        let linker = create_linker(&engine);
+
+        let state = create_test_host_state();
+        let mut store = Store::new(&engine, state);
+        store.set_fuel(1_000_000).expect("Failed to set fuel");
+
+        let instance = linker
+            .instantiate(&mut store, &module)
+            .expect("Failed to instantiate module");
+
+        let get_random = instance
+            .get_typed_func::<(), i32>(&mut store, "get_random")
+            .expect("Failed to get function");
+
+        let result = get_random
+            .call(&mut store, ())
+            .expect("Failed to call function");
+
+        // Should return -1 (error) without capability
+        assert_eq!(result, HOST_ERROR);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // HOST_LOG TESTS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_host_log_with_capability() {
+        let engine = create_engine();
+
+        let wasm = wat::parse_str(
+            r#"
+            (module
+                (import "vudo" "host_log" (func $log (param i32 i32 i32) (result i32)))
+                (memory (export "memory") 1)
+                (data (i32.const 0) "Hello, VUDO!")
+                (func (export "log_message") (result i32)
+                    ;; Log level 1 (INFO), message at offset 0, length 12
+                    i32.const 1
+                    i32.const 0
+                    i32.const 12
+                    call $log
+                )
+            )
+        "#,
+        )
+        .expect("Failed to parse WAT");
+
+        let module = Module::new(&engine, &wasm).expect("Failed to compile module");
+        let linker = create_linker(&engine);
+
+        let state = create_host_state_with_capabilities(&[CapabilityType::ActuatorLog]);
+        let mut store = Store::new(&engine, state);
+        store.set_fuel(1_000_000).expect("Failed to set fuel");
+
+        let instance = linker
+            .instantiate(&mut store, &module)
+            .expect("Failed to instantiate module");
+
+        let log_message = instance
+            .get_typed_func::<(), i32>(&mut store, "log_message")
+            .expect("Failed to get function");
+
+        let result = log_message
+            .call(&mut store, ())
+            .expect("Failed to call function");
+
+        // Should return 0 (success)
+        assert_eq!(result, HOST_SUCCESS);
+    }
+
+    #[test]
+    fn test_host_log_invalid_level() {
+        let engine = create_engine();
+
+        let wasm = wat::parse_str(
+            r#"
+            (module
+                (import "vudo" "host_log" (func $log (param i32 i32 i32) (result i32)))
+                (memory (export "memory") 1)
+                (data (i32.const 0) "Test message")
+                (func (export "log_invalid") (result i32)
+                    ;; Invalid log level 255
+                    i32.const 255
+                    i32.const 0
+                    i32.const 12
+                    call $log
+                )
+            )
+        "#,
+        )
+        .expect("Failed to parse WAT");
+
+        let module = Module::new(&engine, &wasm).expect("Failed to compile module");
+        let linker = create_linker(&engine);
+
+        let state = create_host_state_with_capabilities(&[CapabilityType::ActuatorLog]);
+        let mut store = Store::new(&engine, state);
+        store.set_fuel(1_000_000).expect("Failed to set fuel");
+
+        let instance = linker
+            .instantiate(&mut store, &module)
+            .expect("Failed to instantiate module");
+
+        let log_invalid = instance
+            .get_typed_func::<(), i32>(&mut store, "log_invalid")
+            .expect("Failed to get function");
+
+        let result = log_invalid
+            .call(&mut store, ())
+            .expect("Failed to call function");
+
+        // Should return -1 (error) for invalid log level
+        assert_eq!(result, HOST_ERROR);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // STORAGE FUNCTION TESTS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_host_storage_write_and_read() {
+        let engine = create_engine();
+
+        let wasm = wat::parse_str(
+            r#"
+            (module
+                (import "vudo" "host_storage_write" (func $write (param i32 i32 i32 i32) (result i32)))
+                (import "vudo" "host_storage_read" (func $read (param i32 i32 i32 i32) (result i32)))
+                (memory (export "memory") 1)
+                ;; Key "test" at offset 0
+                (data (i32.const 0) "test")
+                ;; Value "hello" at offset 16
+                (data (i32.const 16) "hello")
+                ;; Read buffer at offset 32
+
+                (func (export "write_value") (result i32)
+                    ;; key_ptr=0, key_len=4, val_ptr=16, val_len=5
+                    i32.const 0
+                    i32.const 4
+                    i32.const 16
+                    i32.const 5
+                    call $write
+                )
+                (func (export "read_value") (result i32)
+                    ;; key_ptr=0, key_len=4, val_ptr=32, val_cap=64
+                    i32.const 0
+                    i32.const 4
+                    i32.const 32
+                    i32.const 64
+                    call $read
+                )
+            )
+        "#,
+        )
+        .expect("Failed to parse WAT");
+
+        let module = Module::new(&engine, &wasm).expect("Failed to compile module");
+        let linker = create_linker(&engine);
+
+        let state = create_host_state_with_capabilities(&[
+            CapabilityType::StorageRead,
+            CapabilityType::StorageWrite,
+        ]);
+        let mut store = Store::new(&engine, state);
+        store.set_fuel(1_000_000).expect("Failed to set fuel");
+
+        let instance = linker
+            .instantiate(&mut store, &module)
+            .expect("Failed to instantiate module");
+
+        // Write the value
+        let write_value = instance
+            .get_typed_func::<(), i32>(&mut store, "write_value")
+            .expect("Failed to get function");
+
+        let write_result = write_value
+            .call(&mut store, ())
+            .expect("Failed to call function");
+        assert_eq!(write_result, HOST_SUCCESS);
+
+        // Read it back
+        let read_value = instance
+            .get_typed_func::<(), i32>(&mut store, "read_value")
+            .expect("Failed to get function");
+
+        let read_result = read_value
+            .call(&mut store, ())
+            .expect("Failed to call function");
+
+        // Should return the number of bytes read (5)
+        assert_eq!(read_result, 5);
+    }
+
+    #[test]
+    fn test_host_storage_delete() {
+        let engine = create_engine();
+
+        let wasm = wat::parse_str(
+            r#"
+            (module
+                (import "vudo" "host_storage_write" (func $write (param i32 i32 i32 i32) (result i32)))
+                (import "vudo" "host_storage_delete" (func $delete (param i32 i32) (result i32)))
+                (import "vudo" "host_storage_read" (func $read (param i32 i32 i32 i32) (result i32)))
+                (memory (export "memory") 1)
+                (data (i32.const 0) "key1")
+                (data (i32.const 16) "value1")
+
+                (func (export "write_then_delete") (result i32)
+                    ;; Write first
+                    i32.const 0
+                    i32.const 4
+                    i32.const 16
+                    i32.const 6
+                    call $write
+                    drop
+
+                    ;; Delete
+                    i32.const 0
+                    i32.const 4
+                    call $delete
+                )
+                (func (export "read_deleted") (result i32)
+                    i32.const 0
+                    i32.const 4
+                    i32.const 32
+                    i32.const 64
+                    call $read
+                )
+            )
+        "#,
+        )
+        .expect("Failed to parse WAT");
+
+        let module = Module::new(&engine, &wasm).expect("Failed to compile module");
+        let linker = create_linker(&engine);
+
+        let state = create_host_state_with_capabilities(&[
+            CapabilityType::StorageRead,
+            CapabilityType::StorageWrite,
+            CapabilityType::StorageDelete,
+        ]);
+        let mut store = Store::new(&engine, state);
+        store.set_fuel(1_000_000).expect("Failed to set fuel");
+
+        let instance = linker
+            .instantiate(&mut store, &module)
+            .expect("Failed to instantiate module");
+
+        // Write then delete
+        let write_delete = instance
+            .get_typed_func::<(), i32>(&mut store, "write_then_delete")
+            .expect("Failed to get function");
+
+        let result = write_delete
+            .call(&mut store, ())
+            .expect("Failed to call function");
+
+        // Delete should return 1 (key was deleted)
+        assert_eq!(result, 1);
+
+        // Now try to read - should return 0 (no value)
+        let read_deleted = instance
+            .get_typed_func::<(), i32>(&mut store, "read_deleted")
+            .expect("Failed to get function");
+
+        let read_result = read_deleted
+            .call(&mut store, ())
+            .expect("Failed to call function");
+        assert_eq!(read_result, 0);
+    }
+
+    #[test]
+    fn test_host_storage_without_capability() {
+        let engine = create_engine();
+
+        let wasm = wat::parse_str(
+            r#"
+            (module
+                (import "vudo" "host_storage_read" (func $read (param i32 i32 i32 i32) (result i32)))
+                (memory (export "memory") 1)
+                (func (export "try_read") (result i32)
+                    i32.const 0
+                    i32.const 4
+                    i32.const 16
+                    i32.const 64
+                    call $read
+                )
+            )
+        "#,
+        )
+        .expect("Failed to parse WAT");
+
+        let module = Module::new(&engine, &wasm).expect("Failed to compile module");
+        let linker = create_linker(&engine);
+
+        let state = create_test_host_state();
+        let mut store = Store::new(&engine, state);
+        store.set_fuel(1_000_000).expect("Failed to set fuel");
+
+        let instance = linker
+            .instantiate(&mut store, &module)
+            .expect("Failed to instantiate module");
+
+        let try_read = instance
+            .get_typed_func::<(), i32>(&mut store, "try_read")
+            .expect("Failed to get function");
+
+        let result = try_read
+            .call(&mut store, ())
+            .expect("Failed to call function");
+
+        // Should return -1 (error) without capability
+        assert_eq!(result, HOST_ERROR);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // NETWORK FUNCTION TESTS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_host_network_connect() {
+        let engine = create_engine();
+
+        let wasm = wat::parse_str(
+            r#"
+            (module
+                (import "vudo" "host_network_connect" (func $connect (param i32 i32) (result i64)))
+                (memory (export "memory") 1)
+                (data (i32.const 0) "127.0.0.1:8080")
+
+                (func (export "connect") (result i64)
+                    i32.const 0
+                    i32.const 14
+                    call $connect
+                )
+            )
+        "#,
+        )
+        .expect("Failed to parse WAT");
+
+        let module = Module::new(&engine, &wasm).expect("Failed to compile module");
+        let linker = create_linker(&engine);
+
+        let state = create_host_state_with_capabilities(&[CapabilityType::NetworkConnect]);
+        let mut store = Store::new(&engine, state);
+        store.set_fuel(1_000_000).expect("Failed to set fuel");
+
+        let instance = linker
+            .instantiate(&mut store, &module)
+            .expect("Failed to instantiate module");
+
+        let connect = instance
+            .get_typed_func::<(), i64>(&mut store, "connect")
+            .expect("Failed to get function");
+
+        let result = connect
+            .call(&mut store, ())
+            .expect("Failed to call function");
+
+        // MockNetworkBackend returns a connection handle >= 0
+        assert!(result >= 0);
+    }
+
+    #[test]
+    fn test_host_network_listen() {
+        let engine = create_engine();
+
+        let wasm = wat::parse_str(
+            r#"
+            (module
+                (import "vudo" "host_network_listen" (func $listen (param i32) (result i64)))
+
+                (func (export "listen") (result i64)
+                    i32.const 8080
+                    call $listen
+                )
+            )
+        "#,
+        )
+        .expect("Failed to parse WAT");
+
+        let module = Module::new(&engine, &wasm).expect("Failed to compile module");
+        let linker = create_linker(&engine);
+
+        let state = create_host_state_with_capabilities(&[CapabilityType::NetworkListen]);
+        let mut store = Store::new(&engine, state);
+        store.set_fuel(1_000_000).expect("Failed to set fuel");
+
+        let instance = linker
+            .instantiate(&mut store, &module)
+            .expect("Failed to instantiate module");
+
+        let listen = instance
+            .get_typed_func::<(), i64>(&mut store, "listen")
+            .expect("Failed to get function");
+
+        let result = listen
+            .call(&mut store, ())
+            .expect("Failed to call function");
+
+        // MockNetworkBackend returns a listener handle >= 0
+        assert!(result >= 0);
+    }
+
+    #[test]
+    fn test_host_network_listen_invalid_port() {
+        let engine = create_engine();
+
+        let wasm = wat::parse_str(
+            r#"
+            (module
+                (import "vudo" "host_network_listen" (func $listen (param i32) (result i64)))
+
+                (func (export "listen_invalid") (result i64)
+                    i32.const 70000  ;; Invalid port > 65535
+                    call $listen
+                )
+            )
+        "#,
+        )
+        .expect("Failed to parse WAT");
+
+        let module = Module::new(&engine, &wasm).expect("Failed to compile module");
+        let linker = create_linker(&engine);
+
+        let state = create_host_state_with_capabilities(&[CapabilityType::NetworkListen]);
+        let mut store = Store::new(&engine, state);
+        store.set_fuel(1_000_000).expect("Failed to set fuel");
+
+        let instance = linker
+            .instantiate(&mut store, &module)
+            .expect("Failed to instantiate module");
+
+        let listen_invalid = instance
+            .get_typed_func::<(), i64>(&mut store, "listen_invalid")
+            .expect("Failed to get function");
+
+        let result = listen_invalid
+            .call(&mut store, ())
+            .expect("Failed to call function");
+
+        // Should return -1 for invalid port
+        assert_eq!(result, -1);
+    }
+
+    #[test]
+    fn test_host_network_broadcast() {
+        let engine = create_engine();
+
+        let wasm = wat::parse_str(
+            r#"
+            (module
+                (import "vudo" "host_network_broadcast" (func $broadcast (param i32 i32) (result i64)))
+                (memory (export "memory") 1)
+                (data (i32.const 0) "broadcast message")
+
+                (func (export "broadcast") (result i64)
+                    i32.const 0
+                    i32.const 17
+                    call $broadcast
+                )
+            )
+        "#,
+        )
+        .expect("Failed to parse WAT");
+
+        let module = Module::new(&engine, &wasm).expect("Failed to compile module");
+        let linker = create_linker(&engine);
+
+        let state = create_host_state_with_capabilities(&[CapabilityType::NetworkBroadcast]);
+        let mut store = Store::new(&engine, state);
+        store.set_fuel(1_000_000).expect("Failed to set fuel");
+
+        let instance = linker
+            .instantiate(&mut store, &module)
+            .expect("Failed to instantiate module");
+
+        let broadcast = instance
+            .get_typed_func::<(), i64>(&mut store, "broadcast")
+            .expect("Failed to get function");
+
+        let result = broadcast
+            .call(&mut store, ())
+            .expect("Failed to call function");
+
+        // MockNetworkBackend returns peer count >= 0
+        assert!(result >= 0);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // CREDIT FUNCTION TESTS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_host_credit_balance() {
+        let engine = create_engine();
+
+        let wasm = wat::parse_str(
+            r#"
+            (module
+                (import "vudo" "host_credit_balance" (func $balance (param i32) (result i64)))
+                (memory (export "memory") 1)
+                ;; 32-byte account key at offset 0
+                (data (i32.const 0) "\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01")
+
+                (func (export "get_balance") (result i64)
+                    i32.const 0
+                    call $balance
+                )
+            )
+        "#,
+        )
+        .expect("Failed to parse WAT");
+
+        let module = Module::new(&engine, &wasm).expect("Failed to compile module");
+        let linker = create_linker(&engine);
+
+        let state = create_host_state_with_capabilities(&[CapabilityType::ActuatorCredit]);
+        let mut store = Store::new(&engine, state);
+        store.set_fuel(1_000_000).expect("Failed to set fuel");
+
+        let instance = linker
+            .instantiate(&mut store, &module)
+            .expect("Failed to instantiate module");
+
+        let get_balance = instance
+            .get_typed_func::<(), i64>(&mut store, "get_balance")
+            .expect("Failed to get function");
+
+        let result = get_balance
+            .call(&mut store, ())
+            .expect("Failed to call function");
+
+        // InMemoryCreditLedger returns 0 balance for unknown accounts
+        assert!(result >= 0);
+    }
+
+    #[test]
+    fn test_host_credit_transfer() {
+        let engine = create_engine();
+
+        let wasm = wat::parse_str(
+            r#"
+            (module
+                (import "vudo" "host_credit_transfer" (func $transfer (param i32 i32 i64) (result i32)))
+                (memory (export "memory") 1)
+                ;; From account at offset 0
+                (data (i32.const 0) "\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01")
+                ;; To account at offset 32
+                (data (i32.const 32) "\02\02\02\02\02\02\02\02\02\02\02\02\02\02\02\02\02\02\02\02\02\02\02\02\02\02\02\02\02\02\02\02")
+
+                (func (export "transfer") (result i32)
+                    i32.const 0   ;; from_ptr
+                    i32.const 32  ;; to_ptr
+                    i64.const 100 ;; amount
+                    call $transfer
+                )
+            )
+        "#,
+        )
+        .expect("Failed to parse WAT");
+
+        let module = Module::new(&engine, &wasm).expect("Failed to compile module");
+        let linker = create_linker(&engine);
+
+        let state = create_host_state_with_capabilities(&[CapabilityType::ActuatorCredit]);
+        let mut store = Store::new(&engine, state);
+        store.set_fuel(1_000_000).expect("Failed to set fuel");
+
+        let instance = linker
+            .instantiate(&mut store, &module)
+            .expect("Failed to instantiate module");
+
+        let transfer = instance
+            .get_typed_func::<(), i32>(&mut store, "transfer")
+            .expect("Failed to get function");
+
+        let result = transfer
+            .call(&mut store, ())
+            .expect("Failed to call function");
+
+        // Transfer may succeed or fail based on balance, but shouldn't crash
+        assert!(result == HOST_SUCCESS || result == HOST_ERROR);
+    }
+
+    #[test]
+    fn test_host_credit_transfer_negative_amount() {
+        let engine = create_engine();
+
+        let wasm = wat::parse_str(
+            r#"
+            (module
+                (import "vudo" "host_credit_transfer" (func $transfer (param i32 i32 i64) (result i32)))
+                (memory (export "memory") 1)
+                (data (i32.const 0) "\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01")
+                (data (i32.const 32) "\02\02\02\02\02\02\02\02\02\02\02\02\02\02\02\02\02\02\02\02\02\02\02\02\02\02\02\02\02\02\02\02")
+
+                (func (export "transfer_negative") (result i32)
+                    i32.const 0
+                    i32.const 32
+                    i64.const -100  ;; Negative amount
+                    call $transfer
+                )
+            )
+        "#,
+        )
+        .expect("Failed to parse WAT");
+
+        let module = Module::new(&engine, &wasm).expect("Failed to compile module");
+        let linker = create_linker(&engine);
+
+        let state = create_host_state_with_capabilities(&[CapabilityType::ActuatorCredit]);
+        let mut store = Store::new(&engine, state);
+        store.set_fuel(1_000_000).expect("Failed to set fuel");
+
+        let instance = linker
+            .instantiate(&mut store, &module)
+            .expect("Failed to instantiate module");
+
+        let transfer_negative = instance
+            .get_typed_func::<(), i32>(&mut store, "transfer_negative")
+            .expect("Failed to get function");
+
+        let result = transfer_negative
+            .call(&mut store, ())
+            .expect("Failed to call function");
+
+        // Should return -1 for negative amount
+        assert_eq!(result, HOST_ERROR);
+    }
+
+    #[test]
+    fn test_host_credit_reserve_and_release() {
+        let engine = create_engine();
+
+        let wasm = wat::parse_str(
+            r#"
+            (module
+                (import "vudo" "host_credit_reserve" (func $reserve (param i32 i64) (result i64)))
+                (import "vudo" "host_credit_release" (func $release (param i64) (result i32)))
+                (memory (export "memory") 1)
+                (data (i32.const 0) "\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01")
+
+                (global $reservation_id (mut i64) (i64.const 0))
+
+                (func (export "reserve") (result i64)
+                    i32.const 0
+                    i64.const 50
+                    call $reserve
+                )
+                (func (export "release") (param i64) (result i32)
+                    local.get 0
+                    call $release
+                )
+            )
+        "#,
+        )
+        .expect("Failed to parse WAT");
+
+        let module = Module::new(&engine, &wasm).expect("Failed to compile module");
+        let linker = create_linker(&engine);
+
+        let state = create_host_state_with_capabilities(&[CapabilityType::ActuatorCredit]);
+        let mut store = Store::new(&engine, state);
+        store.set_fuel(1_000_000).expect("Failed to set fuel");
+
+        let instance = linker
+            .instantiate(&mut store, &module)
+            .expect("Failed to instantiate module");
+
+        // Reserve
+        let reserve = instance
+            .get_typed_func::<(), i64>(&mut store, "reserve")
+            .expect("Failed to get function");
+
+        let reservation_id = reserve
+            .call(&mut store, ())
+            .expect("Failed to call function");
+
+        // May succeed or fail based on ledger state
+        if reservation_id >= 0 {
+            // Try to release
+            let release = instance
+                .get_typed_func::<i64, i32>(&mut store, "release")
+                .expect("Failed to get function");
+
+            let result = release
+                .call(&mut store, reservation_id)
+                .expect("Failed to call function");
+
+            assert!(result == HOST_SUCCESS || result == HOST_ERROR);
+        }
+    }
+
+    #[test]
+    fn test_host_credit_reserve_zero_amount() {
+        let engine = create_engine();
+
+        let wasm = wat::parse_str(
+            r#"
+            (module
+                (import "vudo" "host_credit_reserve" (func $reserve (param i32 i64) (result i64)))
+                (memory (export "memory") 1)
+                (data (i32.const 0) "\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01")
+
+                (func (export "reserve_zero") (result i64)
+                    i32.const 0
+                    i64.const 0  ;; Zero amount
+                    call $reserve
+                )
+            )
+        "#,
+        )
+        .expect("Failed to parse WAT");
+
+        let module = Module::new(&engine, &wasm).expect("Failed to compile module");
+        let linker = create_linker(&engine);
+
+        let state = create_host_state_with_capabilities(&[CapabilityType::ActuatorCredit]);
+        let mut store = Store::new(&engine, state);
+        store.set_fuel(1_000_000).expect("Failed to set fuel");
+
+        let instance = linker
+            .instantiate(&mut store, &module)
+            .expect("Failed to instantiate module");
+
+        let reserve_zero = instance
+            .get_typed_func::<(), i64>(&mut store, "reserve_zero")
+            .expect("Failed to get function");
+
+        let result = reserve_zero
+            .call(&mut store, ())
+            .expect("Failed to call function");
+
+        // Should return -1 for zero/negative amount
+        assert_eq!(result, -1);
+    }
+
+    #[test]
+    fn test_host_credit_consume() {
+        let engine = create_engine();
+
+        let wasm = wat::parse_str(
+            r#"
+            (module
+                (import "vudo" "host_credit_consume" (func $consume (param i64) (result i32)))
+
+                (func (export "consume") (param i64) (result i32)
+                    local.get 0
+                    call $consume
+                )
+                (func (export "consume_invalid") (result i32)
+                    i64.const -1
+                    call $consume
+                )
+            )
+        "#,
+        )
+        .expect("Failed to parse WAT");
+
+        let module = Module::new(&engine, &wasm).expect("Failed to compile module");
+        let linker = create_linker(&engine);
+
+        let state = create_host_state_with_capabilities(&[CapabilityType::ActuatorCredit]);
+        let mut store = Store::new(&engine, state);
+        store.set_fuel(1_000_000).expect("Failed to set fuel");
+
+        let instance = linker
+            .instantiate(&mut store, &module)
+            .expect("Failed to instantiate module");
+
+        // Try to consume with invalid reservation ID
+        let consume_invalid = instance
+            .get_typed_func::<(), i32>(&mut store, "consume_invalid")
+            .expect("Failed to get function");
+
+        let result = consume_invalid
+            .call(&mut store, ())
+            .expect("Failed to call function");
+
+        // Should return -1 for negative reservation ID
+        assert_eq!(result, HOST_ERROR);
+    }
+
+    #[test]
+    fn test_host_credit_available() {
+        let engine = create_engine();
+
+        let wasm = wat::parse_str(
+            r#"
+            (module
+                (import "vudo" "host_credit_available" (func $available (param i32) (result i64)))
+                (memory (export "memory") 1)
+                (data (i32.const 0) "\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01\01")
+
+                (func (export "get_available") (result i64)
+                    i32.const 0
+                    call $available
+                )
+            )
+        "#,
+        )
+        .expect("Failed to parse WAT");
+
+        let module = Module::new(&engine, &wasm).expect("Failed to compile module");
+        let linker = create_linker(&engine);
+
+        let state = create_host_state_with_capabilities(&[CapabilityType::ActuatorCredit]);
+        let mut store = Store::new(&engine, state);
+        store.set_fuel(1_000_000).expect("Failed to set fuel");
+
+        let instance = linker
+            .instantiate(&mut store, &module)
+            .expect("Failed to instantiate module");
+
+        let get_available = instance
+            .get_typed_func::<(), i64>(&mut store, "get_available")
+            .expect("Failed to get function");
+
+        let result = get_available
+            .call(&mut store, ())
+            .expect("Failed to call function");
+
+        // Should return available balance >= 0
+        assert!(result >= 0);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // UNRESTRICTED CAPABILITY TESTS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_unrestricted_capability_grants_all() {
+        let engine = create_engine();
+
+        let wasm = wat::parse_str(
+            r#"
+            (module
+                (import "vudo" "host_time_now" (func $time_now (result i64)))
+                (import "vudo" "host_random_bytes" (func $random (param i32 i32) (result i32)))
+                (import "vudo" "host_log" (func $log (param i32 i32 i32) (result i32)))
+                (memory (export "memory") 1)
+                (data (i32.const 0) "Test log")
+
+                (func (export "test_time") (result i64)
+                    call $time_now
+                )
+                (func (export "test_random") (result i32)
+                    i32.const 16
+                    i32.const 8
+                    call $random
+                )
+                (func (export "test_log") (result i32)
+                    i32.const 1
+                    i32.const 0
+                    i32.const 8
+                    call $log
+                )
+            )
+        "#,
+        )
+        .expect("Failed to parse WAT");
+
+        let module = Module::new(&engine, &wasm).expect("Failed to compile module");
+        let linker = create_linker(&engine);
+
+        // Only Unrestricted capability
+        let state = create_host_state_with_capabilities(&[CapabilityType::Unrestricted]);
+        let mut store = Store::new(&engine, state);
+        store.set_fuel(1_000_000).expect("Failed to set fuel");
+
+        let instance = linker
+            .instantiate(&mut store, &module)
+            .expect("Failed to instantiate module");
+
+        // All functions should work with Unrestricted
+        let test_time = instance
+            .get_typed_func::<(), i64>(&mut store, "test_time")
+            .expect("Failed to get function");
+        let time_result = test_time.call(&mut store, ()).expect("Failed to call");
+        assert!(time_result > 0);
+
+        let test_random = instance
+            .get_typed_func::<(), i32>(&mut store, "test_random")
+            .expect("Failed to get function");
+        let random_result = test_random.call(&mut store, ()).expect("Failed to call");
+        assert_eq!(random_result, HOST_SUCCESS);
+
+        let test_log = instance
+            .get_typed_func::<(), i32>(&mut store, "test_log")
+            .expect("Failed to get function");
+        let log_result = test_log.call(&mut store, ()).expect("Failed to call");
+        assert_eq!(log_result, HOST_SUCCESS);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // MEMORY BOUNDARY TESTS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_memory_read_out_of_bounds() {
+        let engine = create_engine();
+
+        let wasm = wat::parse_str(
+            r#"
+            (module
+                (import "vudo" "host_storage_read" (func $read (param i32 i32 i32 i32) (result i32)))
+                (memory (export "memory") 1)  ;; 1 page = 64KB
+
+                (func (export "read_oob") (result i32)
+                    ;; Try to read from beyond memory
+                    i32.const 65536  ;; At the memory boundary
+                    i32.const 10
+                    i32.const 0
+                    i32.const 64
+                    call $read
+                )
+            )
+        "#,
+        )
+        .expect("Failed to parse WAT");
+
+        let module = Module::new(&engine, &wasm).expect("Failed to compile module");
+        let linker = create_linker(&engine);
+
+        let state = create_host_state_with_capabilities(&[CapabilityType::StorageRead]);
+        let mut store = Store::new(&engine, state);
+        store.set_fuel(1_000_000).expect("Failed to set fuel");
+
+        let instance = linker
+            .instantiate(&mut store, &module)
+            .expect("Failed to instantiate module");
+
+        let read_oob = instance
+            .get_typed_func::<(), i32>(&mut store, "read_oob")
+            .expect("Failed to get function");
+
+        let result = read_oob
+            .call(&mut store, ())
+            .expect("Failed to call function");
+
+        // Should return -1 for out of bounds read
+        assert_eq!(result, HOST_ERROR);
+    }
+
+    #[test]
+    fn test_memory_write_out_of_bounds() {
+        let engine = create_engine();
+
+        let wasm = wat::parse_str(
+            r#"
+            (module
+                (import "vudo" "host_random_bytes" (func $random (param i32 i32) (result i32)))
+                (memory (export "memory") 1)  ;; 1 page = 64KB
+
+                (func (export "write_oob") (result i32)
+                    ;; Try to write beyond memory
+                    i32.const 65530
+                    i32.const 100  ;; Would overflow past 64KB
+                    call $random
+                )
+            )
+        "#,
+        )
+        .expect("Failed to parse WAT");
+
+        let module = Module::new(&engine, &wasm).expect("Failed to compile module");
+        let linker = create_linker(&engine);
+
+        let state = create_host_state_with_capabilities(&[CapabilityType::SensorRandom]);
+        let mut store = Store::new(&engine, state);
+        store.set_fuel(1_000_000).expect("Failed to set fuel");
+
+        let instance = linker
+            .instantiate(&mut store, &module)
+            .expect("Failed to instantiate module");
+
+        let write_oob = instance
+            .get_typed_func::<(), i32>(&mut store, "write_oob")
+            .expect("Failed to get function");
+
+        let result = write_oob
+            .call(&mut store, ())
+            .expect("Failed to call function");
+
+        // Should return -1 for out of bounds write
+        assert_eq!(result, HOST_ERROR);
+    }
+
+    #[test]
+    fn test_negative_pointer() {
+        let engine = create_engine();
+
+        let wasm = wat::parse_str(
+            r#"
+            (module
+                (import "vudo" "host_log" (func $log (param i32 i32 i32) (result i32)))
+                (memory (export "memory") 1)
+
+                (func (export "log_negative_ptr") (result i32)
+                    i32.const 1
+                    i32.const -1  ;; Negative pointer
+                    i32.const 10
+                    call $log
+                )
+            )
+        "#,
+        )
+        .expect("Failed to parse WAT");
+
+        let module = Module::new(&engine, &wasm).expect("Failed to compile module");
+        let linker = create_linker(&engine);
+
+        let state = create_host_state_with_capabilities(&[CapabilityType::ActuatorLog]);
+        let mut store = Store::new(&engine, state);
+        store.set_fuel(1_000_000).expect("Failed to set fuel");
+
+        let instance = linker
+            .instantiate(&mut store, &module)
+            .expect("Failed to instantiate module");
+
+        let log_negative = instance
+            .get_typed_func::<(), i32>(&mut store, "log_negative_ptr")
+            .expect("Failed to get function");
+
+        let result = log_negative
+            .call(&mut store, ())
+            .expect("Failed to call function");
+
+        // Should return -1 for negative pointer
+        assert_eq!(result, HOST_ERROR);
     }
 }
