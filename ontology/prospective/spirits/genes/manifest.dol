@@ -10,20 +10,21 @@ use vudo.vm.capability.CapabilityType
 // VERSION
 // ═══════════════════════════════════════════════════════════════════════════
 
+
 gene Version {
     has major: UInt32
     has minor: UInt32
     has patch: UInt32
     has prerelease: Option<String>
     has build: Option<String>
-    
+
     constraint valid_prerelease {
         match this.prerelease {
             Some(pre) { pre.matches("[0-9A-Za-z-]+") }
             None { true }
         }
     }
-    
+
     fun to_string() -> String {
         base = "{}.{}.{}".format(this.major, this.minor, this.patch)
         match this.prerelease {
@@ -36,16 +37,16 @@ gene Version {
         }
         return base
     }
-    
+
     exegesis {
         Semantic versioning for Spirits.
-        
+
         - major: Breaking changes
         - minor: New features, backward compatible
         - patch: Bug fixes only
         - prerelease: alpha, beta, rc.1, etc.
         - build: Build metadata
-        
+
         Follows semver 2.0 specification.
     }
 }
@@ -53,7 +54,7 @@ gene Version {
 gene VersionConstraint {
     has operator: VersionOp
     has version: Version
-    
+
     type VersionOp is enum {
         Exact,      // = 1.2.3
         GreaterEq,  // >= 1.2.3
@@ -63,7 +64,7 @@ gene VersionConstraint {
         Caret,      // ^1.2.3 (compatible with)
         Tilde       // ~1.2.3 (patch-level only)
     }
-    
+
     fun satisfies(v: Version) -> Bool {
         match this.operator {
             Exact { v == this.version }
@@ -72,11 +73,12 @@ gene VersionConstraint {
             LessEq { v <= this.version }
             Less { v < this.version }
             Caret { v.major == this.version.major && v >= this.version }
-            Tilde { v.major == this.version.major && 
-                    v.minor == this.version.minor && 
+            Tilde { v.major == this.version.major &&
+                    v.minor == this.version.minor &&
                     v >= this.version }
         }
     }
+    exegesis { Some documentation here. }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -88,16 +90,16 @@ gene Dependency {
     has version_constraint: VersionConstraint
     has optional: Bool
     has features: List<String>
-    
+
     constraint valid_name {
         this.spirit_name.matches("[a-z][a-z0-9_-]*(/[a-z][a-z0-9_-]*)?")
     }
-    
+
     exegesis {
         Dependencies declare which other Spirits are required.
-        
+
         Format: "author/name" or just "name" for stdlib.
-        
+
         Features enable optional functionality:
         - Spirit can expose features
         - Dependencies can request features
@@ -114,7 +116,7 @@ gene Pricing {
     has summon_cost: UInt64
     has execution_rate: Float64
     has storage_rate: Float64
-    
+
     type PricingTier is enum {
         Free,       // No cost
         Basic,      // Low cost, limited features
@@ -122,19 +124,19 @@ gene Pricing {
         Premium,    // Higher price, priority execution
         Custom      // Creator-defined pricing
     }
-    
+
     constraint valid_rates {
         this.execution_rate >= 0.0
         this.storage_rate >= 0.0
     }
-    
+
     exegesis {
         Pricing defines the Mycelial Credit costs for a Spirit.
-        
+
         - summon_cost: One-time cost to summon Spirit
         - execution_rate: Credits per million fuel units
         - storage_rate: Credits per GB-hour
-        
+
         Free tier Spirits help onboard new users.
         Creators set their own pricing to earn credits.
     }
@@ -152,58 +154,58 @@ gene Manifest {
     has license: String
     has homepage: Option<String>
     has repository: Option<String>
-    
+
     has entry_point: String
     has exports: List<ExportedFunction>
     has dependencies: List<Dependency>
     has capabilities_required: List<CapabilityType>
     has features: List<Feature>
-    
+
     has pricing: Pricing
     has categories: List<String>
     has keywords: List<String>
-    
+
     has wasm_hash: Hash
     has signature: Signature
     has published_at: Timestamp
-    
+
     constraint valid_name {
         this.name.length >= 3
         this.name.length <= 64
         this.name.matches("[a-z][a-z0-9_-]*")
     }
-    
+
     constraint valid_description {
         this.description.length > 0
         this.description.length <= 500
     }
-    
+
     constraint valid_signature {
         verify(this.author, this.signature, this.signing_payload())
     }
-    
+
     constraint valid_entry {
         this.exports.any(|e| e.name == this.entry_point)
     }
-    
+
     fun signing_payload() -> Bytes {
         // Hash of all fields except signature
         hash(this.name, this.version, this.author, this.wasm_hash)
     }
-    
+
     exegesis {
         The Spirit Manifest is the complete package definition.
-        
+
         A .spirit file contains:
         1. This manifest (manifest.toml)
         2. Compiled WASM (spirit.wasm)
         3. Source DOL (optional, src/*.dol)
         4. Documentation (optional, docs/*)
         5. Assets (optional, assets/*)
-        
+
         The manifest is cryptographically signed by the author.
         The wasm_hash ensures binary integrity.
-        
+
         Publishing:
         1. Author creates manifest.toml
         2. Author compiles DOL → WASM
@@ -223,19 +225,19 @@ gene ExportedFunction {
     has return_type: Option<TypeDef>
     has description: String
     has capabilities: List<CapabilityType>
-    
+
     constraint valid_name {
         this.name.matches("[a-z_][a-z0-9_]*")
     }
-    
+
     exegesis {
         ExportedFunction describes a callable entry point.
-        
+
         Each export declares:
         - Its signature (params + return)
         - What capabilities it needs
         - Human-readable description
-        
+
         Only exported functions can be invoked externally.
     }
 }
@@ -245,13 +247,17 @@ gene ParameterDef {
     has type_def: TypeDef
     has optional: Bool
     has default_value: Option<Bytes>
+
+    exegesis {
+     Some documentation here.
+     }
 }
 
 gene TypeDef {
     has kind: TypeKind
     has inner: Option<TypeDef>
     has fields: List<FieldDef>
-    
+
     type TypeKind is enum {
         Void, Bool, Int8, Int16, Int32, Int64,
         UInt8, UInt16, UInt32, UInt64,
@@ -259,11 +265,19 @@ gene TypeDef {
         List, Map, Option, Result,
         Struct, Enum
     }
+
+    exegesis {
+        Some documentation here.
+     }
 }
 
 gene FieldDef {
     has name: String
     has type_def: TypeDef
+
+    exegesis {
+        Some documentation here.
+     }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -276,19 +290,19 @@ gene Feature {
     has default: Bool
     has additional_capabilities: List<CapabilityType>
     has additional_dependencies: List<Dependency>
-    
+
     constraint valid_name {
         this.name.matches("[a-z][a-z0-9_-]*")
     }
-    
+
     exegesis {
         Features are optional Spirit functionality.
-        
+
         Example: A "visualization" feature might:
         - Require additional graphics capabilities
         - Include extra dependencies
         - Enable 3D rendering exports
-        
+
         Consumers choose which features to enable.
     }
 }
@@ -300,15 +314,15 @@ gene Feature {
 gene Lineage {
     has ancestors: List<AncestorRef>
     has fork_reason: Option<String>
-    
+
     exegesis {
         Lineage tracks Spirit evolution and attribution.
-        
+
         When a Spirit forks from another:
         - Original creator gets attribution
         - Credit splits flow to ancestors
         - Evolution chain is verifiable
-        
+
         This implements "attribution chains" from VUDO economics.
     }
 }
@@ -318,9 +332,14 @@ gene AncestorRef {
     has version: Version
     has author: PublicKey
     has contribution: Float64
-    
+
     constraint valid_contribution {
         this.contribution >= 0.0 && this.contribution <= 1.0
+    }
+
+    exegesis {
+        AncestorRef represents a reference to an ancestor Spirit.
+        It includes information about the ancestor's name, version, author, and contribution.
     }
 }
 

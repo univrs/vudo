@@ -65,23 +65,23 @@ gene ResourceLimits {
     has max_duration: Duration
     has max_table_elements: UInt32
     has max_instances: UInt32
-    
+
     constraint bounded {
         this.memory_bytes <= 1073741824  // 1 GB max
         this.cpu_quota >= 0.0 && this.cpu_quota <= 1.0
         this.max_fuel > 0
     }
-    
+
     exegesis {
         ResourceLimits define the boundaries of sandbox execution.
-        
+
         - memory_bytes: Maximum WASM linear memory
         - cpu_quota: Fraction of CPU time (0.0 to 1.0)
         - max_fuel: wasmtime fuel units before pause
         - max_duration: Wall-clock timeout
         - max_table_elements: WASM table size limit
         - max_instances: Number of module instances
-        
+
         These limits implement the "capability-bounded substrate"
         principle from the VUDO architecture.
     }
@@ -102,34 +102,34 @@ gene Sandbox {
     has last_executed: Option<Timestamp>
     has fuel_consumed: UInt64
     has memory_peak: UInt64
-    
+
     constraint valid_module {
         this.wasm_module.length > 0
         this.wasm_module.length <= 104857600  // 100 MB max
     }
-    
+
     constraint valid_owner {
         this.owner.length == 32  // Ed25519 public key
     }
-    
+
     constraint resource_tracking {
         this.fuel_consumed <= this.limits.max_fuel
         this.memory_peak <= this.limits.memory_bytes
     }
-    
+
     exegesis {
         A Sandbox is an isolated WASM execution environment for Spirits.
-        
+
         Each Sandbox:
         - Has a unique identity tied to an Ed25519 owner
         - Contains compiled WASM bytecode
         - Operates within explicit resource limits
         - Requires capability grants for any external operations
         - Tracks its own resource consumption
-        
+
         The Sandbox implements VUDO's security model:
         "Nothing escapes the sandbox without explicit capability."
-        
+
         Lifecycle:
         1. Initializing → Loading WASM, validating
         2. Ready → Module validated, awaiting execution
@@ -152,7 +152,7 @@ gene SandboxMetrics {
     has peak_memory: UInt64
     has trap_count: UInt64
     has last_updated: Timestamp
-    
+
     exegesis {
         Aggregate metrics for sandbox performance analysis.
         Updated after each execution cycle.

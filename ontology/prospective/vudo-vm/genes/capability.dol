@@ -89,32 +89,32 @@ gene CapabilityGrant {
     has expires_at: Option<Timestamp>
     has revoked: Bool
     has signature: Signature
-    
+
     constraint valid_signature {
         verify(this.granter, this.signature, this.hash_for_signing())
     }
-    
+
     constraint not_expired {
         match this.expires_at {
             Some(expiry) { now() < expiry }
             None { true }
         }
     }
-    
+
     constraint not_revoked {
         this.revoked == false
     }
-    
+
     exegesis {
         A CapabilityGrant is a cryptographically signed permission.
-        
+
         Grants are:
         - Explicit: No implicit permissions
         - Signed: Verifiable authenticity
         - Scoped: Limited to specific operations/targets
         - Temporal: Can expire
         - Revocable: Can be withdrawn
-        
+
         The granter must have the capability to grant it.
         Capabilities follow the principle of least privilege.
     }
@@ -124,6 +124,17 @@ gene CapabilityGrant {
 // CAPABILITY REQUEST
 // ═══════════════════════════════════════════════════════════════════════════
 
+gene RequestStatus {
+    type: enum {
+        Pending,
+        Granted,
+        Denied,
+        Expired
+    }
+    exegesis { Some documentation here. }
+}
+
+
 gene CapabilityRequest {
     has id: UInt64
     has sandbox_id: UInt64
@@ -132,28 +143,21 @@ gene CapabilityRequest {
     has reason: String
     has requested_at: Timestamp
     has status: RequestStatus
-    
-    type RequestStatus is enum {
-        Pending,
-        Granted,
-        Denied,
-        Expired
-    }
-    
+
     constraint valid_reason {
         this.reason.length > 0
         this.reason.length <= 500
     }
-    
+
     exegesis {
         A CapabilityRequest is how a Sandbox asks for permissions.
-        
+
         The request includes a reason for audit purposes.
         Requests may be:
         - Auto-granted: If within Spirit's declared requirements
         - User-prompted: If escalation required
         - Denied: If policy violation
-        
+
         All requests are logged for security audit.
     }
 }
@@ -165,29 +169,29 @@ gene CapabilityRequest {
 gene CapabilityChain {
     has root_grant: CapabilityGrant
     has delegations: List<CapabilityGrant>
-    
+
     constraint valid_chain {
         // Each delegation must be from previous grantee
         for i in 0..this.delegations.length - 1 {
             this.delegations[i].grantee == this.delegations[i + 1].granter
         }
     }
-    
+
     constraint no_escalation {
         // Delegated scope cannot exceed original
         for delegation in this.delegations {
             delegation.scope.is_subset_of(this.root_grant.scope)
         }
     }
-    
+
     exegesis {
         CapabilityChain tracks delegation history.
-        
+
         Capabilities can be delegated, but:
         - Cannot exceed original scope
         - Chain is verifiable end-to-end
         - Revocation cascades through chain
-        
+
         This enables "capability attenuation" -
         passing narrower permissions downstream.
     }
@@ -199,7 +203,7 @@ gene CapabilityChain {
 
 gene CapabilitySet {
     has grants: Map<CapabilityType, List<CapabilityGrant>>
-    
+
     fun has_capability(cap: CapabilityType, scope: CapabilityScope) -> Bool {
         match this.grants.get(cap) {
             Some(grants) {
@@ -213,7 +217,7 @@ gene CapabilitySet {
             None { false }
         }
     }
-    
+
     fun effective_scope(cap: CapabilityType) -> Option<CapabilityScope> {
         match this.grants.get(cap) {
             Some(grants) {
@@ -225,15 +229,15 @@ gene CapabilitySet {
             None { None }
         }
     }
-    
+
     exegesis {
         CapabilitySet is the effective permissions for a Sandbox.
-        
+
         Computed from:
         - Spirit manifest required capabilities
         - User-granted capabilities
         - System default capabilities
-        
+
         Checked before every privileged operation.
     }
 }
