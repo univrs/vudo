@@ -28,7 +28,8 @@ fn load_wat(name: &str) -> Vec<u8> {
 fn create_sandbox(wasm: &[u8]) -> Sandbox {
     let owner = [0u8; 32];
     let limits = ResourceLimits::default();
-    let mut sandbox = Sandbox::new(wasm, owner, limits).expect("Failed to create sandbox");
+    let mut sandbox =
+        Sandbox::new_with_defaults(wasm, owner, limits).expect("Failed to create sandbox");
     sandbox.initialize().expect("Failed to initialize sandbox");
     sandbox
 }

@@ -2,5 +2,29 @@
 name = "vudo_cli"
 version.workspace = true
 edition.workspace = true
+description = "The Creator's CLI for VUDO"
+
+[[bin]]
+name = "vudo"
+path = "src/main.rs"
 
 [dependencies]
+vudo_vm = { path = "../vudo_vm" }
+spirit_runtime = { path = "../spirit_runtime" }
+vudo_repl = { path = "../vudo_repl" }
+clap = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+colored = { workspace = true }
+rustyline = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+ed25519-dalek = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+rand = { workspace = true }
+dirs = { workspace = true }

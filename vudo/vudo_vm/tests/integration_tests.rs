@@ -161,7 +161,8 @@ fn test_spirit_compile_and_run() {
     let limits = ResourceLimits::default();
 
     // Create and initialize sandbox
-    let mut sandbox = Sandbox::new(&wasm, owner, limits).expect("Failed to create sandbox");
+    let mut sandbox =
+        Sandbox::new_with_defaults(&wasm, owner, limits).expect("Failed to create sandbox");
     assert_eq!(sandbox.get_state(), SandboxState::Initializing);
 
     sandbox.initialize().expect("Failed to initialize sandbox");
@@ -198,7 +199,8 @@ fn test_spirit_with_parameters() {
     let owner = [0u8; 32];
     let limits = ResourceLimits::default();
 
-    let mut sandbox = Sandbox::new(&wasm, owner, limits).expect("Failed to create sandbox");
+    let mut sandbox =
+        Sandbox::new_with_defaults(&wasm, owner, limits).expect("Failed to create sandbox");
     sandbox.initialize().expect("Failed to initialize");
 
     // Test addition
@@ -259,7 +261,8 @@ fn test_spirit_with_memory() {
     let owner = [0u8; 32];
     let limits = ResourceLimits::default();
 
-    let mut sandbox = Sandbox::new(&wasm, owner, limits).expect("Failed to create sandbox");
+    let mut sandbox =
+        Sandbox::new_with_defaults(&wasm, owner, limits).expect("Failed to create sandbox");
     sandbox.initialize().expect("Failed to initialize");
 
     // Test store and load
@@ -299,7 +302,8 @@ fn test_spirit_with_globals() {
     let owner = [0u8; 32];
     let limits = ResourceLimits::default();
 
-    let mut sandbox = Sandbox::new(&wasm, owner, limits).expect("Failed to create sandbox");
+    let mut sandbox =
+        Sandbox::new_with_defaults(&wasm, owner, limits).expect("Failed to create sandbox");
     sandbox.initialize().expect("Failed to initialize");
 
     // Increment multiple times
@@ -355,9 +359,10 @@ fn test_sandbox_isolation() {
     let limits = ResourceLimits::default();
 
     // Create two separate sandboxes
-    let mut sandbox1 =
-        Sandbox::new(&wasm, owner1, limits.clone()).expect("Failed to create sandbox1");
-    let mut sandbox2 = Sandbox::new(&wasm, owner2, limits).expect("Failed to create sandbox2");
+    let mut sandbox1 = Sandbox::new_with_defaults(&wasm, owner1, limits.clone())
+        .expect("Failed to create sandbox1");
+    let mut sandbox2 =
+        Sandbox::new_with_defaults(&wasm, owner2, limits).expect("Failed to create sandbox2");
 
     sandbox1
         .initialize()
@@ -424,9 +429,10 @@ fn test_sandbox_owner_isolation() {
     let owner_bob = [0xBB; 32];
     let limits = ResourceLimits::default();
 
-    let sandbox_alice =
-        Sandbox::new(&wasm, owner_alice, limits.clone()).expect("Failed to create sandbox");
-    let sandbox_bob = Sandbox::new(&wasm, owner_bob, limits).expect("Failed to create sandbox");
+    let sandbox_alice = Sandbox::new_with_defaults(&wasm, owner_alice, limits.clone())
+        .expect("Failed to create sandbox");
+    let sandbox_bob =
+        Sandbox::new_with_defaults(&wasm, owner_bob, limits).expect("Failed to create sandbox");
 
     // Verify owners are different
     assert_ne!(sandbox_alice.owner, sandbox_bob.owner);
@@ -455,7 +461,7 @@ fn test_sandbox_termination_isolation() {
 
     // Create and use first sandbox
     let mut sandbox1 =
-        Sandbox::new(&wasm, owner, limits.clone()).expect("Failed to create sandbox");
+        Sandbox::new_with_defaults(&wasm, owner, limits.clone()).expect("Failed to create sandbox");
     sandbox1.initialize().expect("Failed to initialize");
     sandbox1.invoke("increment", &[]).expect("Failed to invoke");
     sandbox1.invoke("increment", &[]).expect("Failed to invoke");
@@ -463,7 +469,8 @@ fn test_sandbox_termination_isolation() {
     assert_eq!(sandbox1.get_state(), SandboxState::Terminated);
 
     // Create a new sandbox - should start fresh
-    let mut sandbox2 = Sandbox::new(&wasm, owner, limits).expect("Failed to create sandbox");
+    let mut sandbox2 =
+        Sandbox::new_with_defaults(&wasm, owner, limits).expect("Failed to create sandbox");
     sandbox2.initialize().expect("Failed to initialize");
 
     let result = sandbox2.invoke("increment", &[]).expect("Failed to invoke");
@@ -671,7 +678,8 @@ fn test_sandbox_capability_management() {
     let owner = [0u8; 32];
     let limits = ResourceLimits::default();
 
-    let mut sandbox = Sandbox::new(&wasm, owner, limits).expect("Failed to create sandbox");
+    let mut sandbox =
+        Sandbox::new_with_defaults(&wasm, owner, limits).expect("Failed to create sandbox");
 
     // Initially no capabilities
     assert!(!sandbox.has_capability(SandboxCapabilityType::StorageRead));
@@ -719,7 +727,8 @@ fn test_fuel_metering_basic() {
     let owner = [0u8; 32];
     let limits = ResourceLimits::default();
 
-    let mut sandbox = Sandbox::new(&wasm, owner, limits).expect("Failed to create sandbox");
+    let mut sandbox =
+        Sandbox::new_with_defaults(&wasm, owner, limits).expect("Failed to create sandbox");
     sandbox.initialize().expect("Failed to initialize");
 
     // Execute with a small loop
@@ -759,7 +768,8 @@ fn test_fuel_metering_cumulative() {
     let owner = [0u8; 32];
     let limits = ResourceLimits::default();
 
-    let mut sandbox = Sandbox::new(&wasm, owner, limits).expect("Failed to create sandbox");
+    let mut sandbox =
+        Sandbox::new_with_defaults(&wasm, owner, limits).expect("Failed to create sandbox");
     sandbox.initialize().expect("Failed to initialize");
 
     // Initial fuel consumed should be 0
@@ -815,7 +825,8 @@ fn test_fuel_exhaustion() {
         ..Default::default()
     };
 
-    let mut sandbox = Sandbox::new(&wasm, owner, limits).expect("Failed to create sandbox");
+    let mut sandbox =
+        Sandbox::new_with_defaults(&wasm, owner, limits).expect("Failed to create sandbox");
     sandbox.initialize().expect("Failed to initialize");
 
     // This should exhaust fuel
@@ -852,7 +863,8 @@ fn test_fuel_refuel() {
     let owner = [0u8; 32];
     let limits = ResourceLimits::default();
 
-    let mut sandbox = Sandbox::new(&wasm, owner, limits).expect("Failed to create sandbox");
+    let mut sandbox =
+        Sandbox::new_with_defaults(&wasm, owner, limits).expect("Failed to create sandbox");
     sandbox.initialize().expect("Failed to initialize");
 
     // Execute to consume some fuel
@@ -936,12 +948,12 @@ fn test_fuel_operation_costs() {
     let owner = [0u8; 32];
     let limits = ResourceLimits::default();
 
-    let mut simple_sandbox =
-        Sandbox::new(&simple_wasm, owner, limits.clone()).expect("Failed to create sandbox");
+    let mut simple_sandbox = Sandbox::new_with_defaults(&simple_wasm, owner, limits.clone())
+        .expect("Failed to create sandbox");
     simple_sandbox.initialize().expect("Failed to initialize");
 
     let mut complex_sandbox =
-        Sandbox::new(&complex_wasm, owner, limits).expect("Failed to create sandbox");
+        Sandbox::new_with_defaults(&complex_wasm, owner, limits).expect("Failed to create sandbox");
     complex_sandbox.initialize().expect("Failed to initialize");
 
     let simple_result = simple_sandbox
@@ -1003,8 +1015,8 @@ fn test_concurrent_sandboxes_basic() {
                 let owner = [thread_id as u8; 32];
                 let limits = ResourceLimits::default();
 
-                let mut sandbox =
-                    Sandbox::new(&wasm, owner, limits).expect("Failed to create sandbox");
+                let mut sandbox = Sandbox::new_with_defaults(&wasm, owner, limits)
+                    .expect("Failed to create sandbox");
                 sandbox.initialize().expect("Failed to initialize");
 
                 // Each thread does different amount of work
@@ -1128,8 +1140,8 @@ fn test_concurrent_sandboxes_isolation_stress() {
                 let owner = [thread_id as u8; 32];
                 let limits = ResourceLimits::default();
 
-                let mut sandbox =
-                    Sandbox::new(&wasm, owner, limits).expect("Failed to create sandbox");
+                let mut sandbox = Sandbox::new_with_defaults(&wasm, owner, limits)
+                    .expect("Failed to create sandbox");
                 sandbox.initialize().expect("Failed to initialize");
 
                 // Thread-specific magic number
@@ -1196,8 +1208,8 @@ fn test_concurrent_sandboxes_metrics() {
                 let owner = [thread_id as u8; 32];
                 let limits = ResourceLimits::default();
 
-                let mut sandbox =
-                    Sandbox::new(&wasm, owner, limits).expect("Failed to create sandbox");
+                let mut sandbox = Sandbox::new_with_defaults(&wasm, owner, limits)
+                    .expect("Failed to create sandbox");
                 sandbox.initialize().expect("Failed to initialize");
 
                 barrier.wait();
@@ -1242,9 +1254,10 @@ fn test_invalid_wasm_module() {
     let owner = [0u8; 32];
     let limits = ResourceLimits::default();
 
-    // Sandbox::new doesn't validate bytecode content, only size
+    // Sandbox::new_with_defaults doesn't validate bytecode content, only size
     // Invalid WASM will be caught during initialize() when compiling
-    let mut sandbox = Sandbox::new(invalid_wasm, owner, limits).expect("new should succeed");
+    let mut sandbox =
+        Sandbox::new_with_defaults(invalid_wasm, owner, limits).expect("new should succeed");
     let result = sandbox.initialize();
     assert!(
         result.is_err(),
@@ -1259,7 +1272,7 @@ fn test_empty_wasm_module() {
     let owner = [0u8; 32];
     let limits = ResourceLimits::default();
 
-    let result = Sandbox::new(empty_wasm, owner, limits);
+    let result = Sandbox::new_with_defaults(empty_wasm, owner, limits);
     assert!(result.is_err());
 }
 
@@ -1280,7 +1293,8 @@ fn test_nonexistent_function() {
     let owner = [0u8; 32];
     let limits = ResourceLimits::default();
 
-    let mut sandbox = Sandbox::new(&wasm, owner, limits).expect("Failed to create sandbox");
+    let mut sandbox =
+        Sandbox::new_with_defaults(&wasm, owner, limits).expect("Failed to create sandbox");
     sandbox.initialize().expect("Failed to initialize");
 
     let result = sandbox.invoke("does_not_exist", &[]);
@@ -1306,7 +1320,8 @@ fn test_wasm_trap_handling() {
     let owner = [0u8; 32];
     let limits = ResourceLimits::default();
 
-    let mut sandbox = Sandbox::new(&wasm, owner, limits).expect("Failed to create sandbox");
+    let mut sandbox =
+        Sandbox::new_with_defaults(&wasm, owner, limits).expect("Failed to create sandbox");
     sandbox.initialize().expect("Failed to initialize");
 
     // Division by zero should trap
@@ -1336,7 +1351,8 @@ fn test_sandbox_state_machine() {
     let owner = [0u8; 32];
     let limits = ResourceLimits::default();
 
-    let mut sandbox = Sandbox::new(&wasm, owner, limits).expect("Failed to create sandbox");
+    let mut sandbox =
+        Sandbox::new_with_defaults(&wasm, owner, limits).expect("Failed to create sandbox");
 
     // Initial state
     assert_eq!(sandbox.get_state(), SandboxState::Initializing);
@@ -1380,7 +1396,7 @@ fn test_resource_limits_variants() {
 
     // Test with default limits
     let default_limits = ResourceLimits::default();
-    assert!(Sandbox::new(&wasm, owner, default_limits).is_ok());
+    assert!(Sandbox::new_with_defaults(&wasm, owner, default_limits).is_ok());
 
     // Test with custom limits
     let custom_limits = ResourceLimits {
@@ -1388,14 +1404,14 @@ fn test_resource_limits_variants() {
         max_fuel: 500_000,
         ..Default::default()
     };
-    assert!(Sandbox::new(&wasm, owner, custom_limits).is_ok());
+    assert!(Sandbox::new_with_defaults(&wasm, owner, custom_limits).is_ok());
 
     // Test with minimal fuel limits
     let minimal_fuel_limits = ResourceLimits {
         max_fuel: 10_000,
         ..Default::default()
     };
-    assert!(Sandbox::new(&wasm, owner, minimal_fuel_limits).is_ok());
+    assert!(Sandbox::new_with_defaults(&wasm, owner, minimal_fuel_limits).is_ok());
 }
 
 /// Tests 64-bit integer operations
@@ -1420,7 +1436,8 @@ fn test_i64_operations() {
     let owner = [0u8; 32];
     let limits = ResourceLimits::default();
 
-    let mut sandbox = Sandbox::new(&wasm, owner, limits).expect("Failed to create sandbox");
+    let mut sandbox =
+        Sandbox::new_with_defaults(&wasm, owner, limits).expect("Failed to create sandbox");
     sandbox.initialize().expect("Failed to initialize");
 
     // Test 64-bit addition
@@ -1468,7 +1485,8 @@ fn test_float_operations() {
     let owner = [0u8; 32];
     let limits = ResourceLimits::default();
 
-    let mut sandbox = Sandbox::new(&wasm, owner, limits).expect("Failed to create sandbox");
+    let mut sandbox =
+        Sandbox::new_with_defaults(&wasm, owner, limits).expect("Failed to create sandbox");
     sandbox.initialize().expect("Failed to initialize");
 
     // Test f32 addition - Val::F32 expects u32 bits representation

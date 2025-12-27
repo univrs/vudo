@@ -27,6 +27,7 @@ pub mod error;
 pub mod fuel;
 pub mod host;
 pub mod limits;
+pub mod linker;
 pub mod sandbox;
 
 pub use error::SandboxError;
@@ -40,3 +41,6 @@ pub use capability::{
 
 // Re-export host interface types for convenience
 pub use host::{HostCallResult, HostInterface, InMemoryStorage, LogLevel, StorageBackend};
+
+// Re-export linker types for convenience
+pub use linker::{create_linker, HostState, HOST_ERROR, HOST_SUCCESS};

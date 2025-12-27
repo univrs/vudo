@@ -1,0 +1,10 @@
+[package]
+name = "vudo_repl"
+version.workspace = true
+edition.workspace = true
+description = "DOL REPL for VUDO"
+
+[dependencies]
+rustyline = { workspace = true }
+colored = { workspace = true }
+thiserror = { workspace = true }
