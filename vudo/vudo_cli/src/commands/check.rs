@@ -47,7 +47,7 @@ async fn run_pretty_check(path: &PathBuf, strict: bool) -> Result<()> {
     if strict {
         println!("{} {}", "Mode:".bold(), "strict type checking".yellow());
     } else {
-        println!("{} {}", "Mode:".bold(), "standard type checking");
+        println!("{} standard type checking", "Mode:".bold());
     }
 
     println!("{} {}", "Path:".bold(), path.display());

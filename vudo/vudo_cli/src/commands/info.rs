@@ -99,10 +99,10 @@ async fn show_remote_spirit_info(name: &str, verbose: bool) -> Result<()> {
     // 2. Fetch metadata
     // 3. Display information
 
-    println!("{} {}", "Version:".cyan(), "1.0.0");
-    println!("{} {}", "Creator:".cyan(), "@example");
-    println!("{} {}", "Downloads:".cyan(), "1,234");
-    println!("{} {}", "Rating:".cyan(), "★★★★☆ (4.5/5)");
+    println!("{} 1.0.0", "Version:".cyan());
+    println!("{} @example", "Creator:".cyan());
+    println!("{} 1,234", "Downloads:".cyan());
+    println!("{} ★★★★☆ (4.5/5)", "Rating:".cyan());
 
     if verbose {
         println!();

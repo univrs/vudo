@@ -221,7 +221,7 @@ fn format_dol_content(content: &str) -> String {
         .collect();
 
     // Remove trailing empty lines
-    while lines.last().map_or(false, |line| line.is_empty()) {
+    while lines.last().is_some_and(|line| line.is_empty()) {
         lines.pop();
     }
 

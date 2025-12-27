@@ -3,7 +3,7 @@
 use anyhow::{Context, Result};
 use clap::Args;
 use colored::Colorize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::config::VudoConfig;
 
@@ -104,7 +104,7 @@ async fn run(args: DocArgs) -> Result<()> {
     Ok(())
 }
 
-async fn generate_html(output_dir: &PathBuf, info: &ProjectInfo) -> Result<()> {
+async fn generate_html(output_dir: &Path, info: &ProjectInfo) -> Result<()> {
     println!("{} HTML documentation...", "Generating".cyan());
 
     let index_html = format!(
@@ -207,7 +207,7 @@ async fn generate_html(output_dir: &PathBuf, info: &ProjectInfo) -> Result<()> {
     Ok(())
 }
 
-async fn generate_markdown(output_dir: &PathBuf, info: &ProjectInfo) -> Result<()> {
+async fn generate_markdown(output_dir: &Path, info: &ProjectInfo) -> Result<()> {
     println!("{} Markdown documentation...", "Generating".cyan());
 
     let readme_md = format!(
@@ -256,7 +256,7 @@ This is a basic structure generated from manifest.toml.
     Ok(())
 }
 
-async fn generate_json(output_dir: &PathBuf, info: &ProjectInfo) -> Result<()> {
+async fn generate_json(output_dir: &Path, info: &ProjectInfo) -> Result<()> {
     println!("{} JSON schema...", "Generating".cyan());
 
     let schema = serde_json::json!({
@@ -298,7 +298,7 @@ impl Default for ProjectInfo {
     }
 }
 
-fn read_manifest(path: &PathBuf) -> Result<ProjectInfo> {
+fn read_manifest(path: &Path) -> Result<ProjectInfo> {
     let content = std::fs::read_to_string(path).context("Failed to read manifest.toml")?;
 
     let manifest: toml::Value =
@@ -345,7 +345,7 @@ fn read_manifest(path: &PathBuf) -> Result<ProjectInfo> {
     })
 }
 
-fn open_in_browser(path: &PathBuf) -> Result<()> {
+fn open_in_browser(path: &Path) -> Result<()> {
     let path_str = path.to_string_lossy();
 
     #[cfg(target_os = "macos")]

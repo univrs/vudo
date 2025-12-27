@@ -75,13 +75,12 @@ pub async fn execute(args: RunArgs, _config: &VudoConfig) -> Result<()> {
 
     // Configure resource limits
     let memory_bytes = parse_memory_limit(args.memory.as_deref())?;
-    let mut limits = ResourceLimits::default();
-    limits.max_fuel = args.fuel;
-    limits.cpu_quota = args.fuel;
-
-    if let Some(mem) = memory_bytes {
-        limits.memory_bytes = mem;
-    }
+    let limits = ResourceLimits {
+        max_fuel: args.fuel,
+        cpu_quota: args.fuel,
+        memory_bytes: memory_bytes.unwrap_or(ResourceLimits::default().memory_bytes),
+        ..Default::default()
+    };
 
     println!("  {} {}", "Fuel:".cyan(), args.fuel);
     if let Some(mem) = memory_bytes {

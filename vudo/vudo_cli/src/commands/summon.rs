@@ -95,8 +95,8 @@ pub async fn execute(args: SummonArgs, config: &VudoConfig) -> Result<()> {
 
 fn parse_spirit_name(name: &str) -> Result<(Option<String>, String, Option<String>)> {
     // Handle @creator/name@version format
-    let (creator, rest) = if name.starts_with('@') {
-        let parts: Vec<&str> = name[1..].splitn(2, '/').collect();
+    let (creator, rest) = if let Some(stripped) = name.strip_prefix('@') {
+        let parts: Vec<&str> = stripped.splitn(2, '/').collect();
         if parts.len() == 2 {
             (Some(parts[0].to_string()), parts[1])
         } else {

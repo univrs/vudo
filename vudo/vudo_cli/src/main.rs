@@ -68,6 +68,15 @@ enum Commands {
     /// Download Spirit from Imaginarium
     Summon(SummonArgs),
 
+    /// Install Spirit to local registry
+    Install(InstallArgs),
+
+    /// Uninstall Spirit from local registry
+    Uninstall(UninstallArgs),
+
+    /// List installed Spirits
+    List(ListArgs),
+
     /// Search the Imaginarium
     Search(SearchArgs),
 
@@ -125,6 +134,9 @@ async fn main() -> Result<()> {
         Commands::Sign(args) => commands::sign::execute(args, &config).await,
         Commands::Publish(args) => commands::publish::execute(args, &config).await,
         Commands::Summon(args) => commands::summon::execute(args, &config).await,
+        Commands::Install(args) => commands::install::execute(args, &config).await,
+        Commands::Uninstall(args) => commands::uninstall::execute(args, &config).await,
+        Commands::List(args) => commands::list::execute(args, &config).await,
         Commands::Search(args) => commands::search::execute(args, &config).await,
         Commands::Info(args) => commands::info::execute(args, &config).await,
         Commands::Check(args) => commands::check::execute(args, &config).await,

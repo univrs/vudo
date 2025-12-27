@@ -1,7 +1,7 @@
 //! Spirit Runtime - Package management for VUDO Spirits
 //!
 //! This crate provides Spirit manifest parsing, versioning, dependency resolution,
-//! and pricing models for the VUDO ecosystem.
+//! registry management, and pricing models for the VUDO ecosystem.
 //!
 //! # Overview
 //!
@@ -10,6 +10,18 @@
 //! - Compiled WASM bytecode
 //! - Ed25519 signatures for authenticity
 //! - Pricing information for execution credits
+//!
+//! # Registry
+//!
+//! The registry system manages Spirit installation, discovery, and versioning:
+//!
+//! ```ignore
+//! use spirit_runtime::registry::{LocalRegistry, Registry};
+//!
+//! let mut registry = LocalRegistry::new();
+//! registry.init().await?;
+//! registry.install("./my-spirit/").await?;
+//! ```
 //!
 //! # Example
 //!
@@ -23,9 +35,13 @@
 pub mod dependency;
 pub mod manifest;
 pub mod pricing;
+pub mod registry;
+pub mod signature;
 pub mod version;
 
 pub use dependency::{Dependency, DependencyResolver};
-pub use manifest::{Capability, Manifest, ManifestError};
+pub use manifest::{Capability, Manifest, ManifestBuilder, ManifestError};
 pub use pricing::{CreditCost, PricingModel};
+pub use registry::{LocalRegistry, QueryBuilder, Registry, RegistryError};
+pub use signature::{KeyPair, Signature, SignatureError, SigningKey, VerifyingKey};
 pub use version::SemVer;

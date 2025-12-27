@@ -90,17 +90,13 @@ fn sign_package(
     hasher.update(&package_data);
     let hash = hasher.finalize();
 
-    println!("  {} {}", "Package hash:".cyan(), hex::encode(&hash));
+    println!("  {} {}", "Package hash:".cyan(), hex::encode(hash));
 
     // Sign the hash
     let signature = signing_key.sign(&hash);
     let signature_bytes = signature.to_bytes();
 
-    println!(
-        "  {} {}",
-        "Signature:".cyan(),
-        hex::encode(&signature_bytes)
-    );
+    println!("  {} {}", "Signature:".cyan(), hex::encode(signature_bytes));
 
     // Create signed package
     let mut signed_package = Vec::new();
