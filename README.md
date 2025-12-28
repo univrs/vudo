@@ -175,12 +175,28 @@ cargo fmt --all -- --check
 - Local registry with dependency resolution
 - Full CLI with 15+ commands
 
-**Next: Phase 3 - Hyphal Network**
+**DOL Integration: v0.4.0**
+
+| VUDO Command | DOL Component | Status |
+|--------------|---------------|--------|
+| `vudo check` | HIR Validation | ✅ Ready |
+| `vudo fmt` | DOL Formatter | ✅ Ready |
+| `vudo dol` | DOL REPL | ✅ Ready |
+| `vudo build` | Rust Codegen | ✅ Ready |
+| `vudo build --wasm` | MLIR → WASM | 🚧 v0.5.0 |
+
+**Next: Phase 3 - Compilation Pipeline**
+
+- DOL v0.5.0: MLIR Dialect definition
+- HIR → MLIR lowering
+- MLIR → WASM emission
+- Full Spirit compilation from `.dol` sources
+
+**Future: Phase 4 - Hyphal Network**
 
 - P2P Spirit distribution
 - Imaginarium distributed registry
 - Cross-node sandbox migration
-- DOL v0.3.0 → WASM pipeline
 
 ---
 
