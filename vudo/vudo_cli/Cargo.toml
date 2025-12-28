@@ -28,3 +28,6 @@ sha2 = { workspace = true }
 hex = { workspace = true }
 rand = { workspace = true }
 dirs = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

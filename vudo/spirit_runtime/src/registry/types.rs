@@ -12,6 +12,23 @@ use std::path::PathBuf;
 use crate::manifest::Manifest;
 
 // ═══════════════════════════════════════════════════════════════════════════
+// REGISTRY CONFIGURATION
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Registry configuration
+///
+/// Controls signature verification and trust policies for Spirit installation.
+#[derive(Debug, Clone, Default)]
+pub struct RegistryConfig {
+    /// Require all spirits to be signed
+    pub require_signatures: bool,
+    /// Path to trusted keys directory
+    pub trusted_keys_dir: Option<PathBuf>,
+    /// Allow unsigned spirits from these authors
+    pub unsigned_allowed_authors: Vec<String>,
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // REGISTRY INDEX
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -229,6 +246,15 @@ pub enum RegistryError {
 
     #[error("TOML error: {0}")]
     Toml(String),
+
+    #[error("Invalid signature for spirit '{spirit}': {reason}")]
+    InvalidSignature { spirit: String, reason: String },
+
+    #[error("Spirit '{spirit}' is not signed")]
+    UnsignedSpirit { spirit: String },
+
+    #[error("Author key not found: {author}")]
+    AuthorKeyNotFound { author: String },
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

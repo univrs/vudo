@@ -1780,6 +1780,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "spirit_runtime",
+ "tempfile",
  "thiserror 1.0.69",
  "tokio",
  "toml",
