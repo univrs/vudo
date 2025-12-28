@@ -22,10 +22,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::fs;
 
 use crate::manifest::Manifest;
+use crate::signature::VerifyingKey;
 
 use super::traits::Registry;
 use super::types::{
-    InstallSource, InstalledSpirit, RegistryError, RegistryIndex, SpiritQuery, SpiritSearchResult,
+    InstallSource, InstalledSpirit, RegistryConfig, RegistryError, RegistryIndex, SpiritQuery,
+    SpiritSearchResult,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -43,6 +45,8 @@ pub struct LocalRegistry {
     index: RegistryIndex,
     /// Whether init() has been called
     initialized: bool,
+    /// Registry configuration for signature verification
+    config: RegistryConfig,
 }
 
 impl LocalRegistry {
@@ -56,6 +60,7 @@ impl LocalRegistry {
             root,
             index: RegistryIndex::default(),
             initialized: false,
+            config: RegistryConfig::default(),
         }
     }
 
@@ -65,7 +70,28 @@ impl LocalRegistry {
             root: root.into(),
             index: RegistryIndex::default(),
             initialized: false,
+            config: RegistryConfig::default(),
         }
+    }
+
+    /// Create a registry with custom configuration
+    pub fn with_config(root: impl Into<PathBuf>, config: RegistryConfig) -> Self {
+        Self {
+            root: root.into(),
+            index: RegistryIndex::default(),
+            initialized: false,
+            config,
+        }
+    }
+
+    /// Get the current registry configuration
+    pub fn config(&self) -> &RegistryConfig {
+        &self.config
+    }
+
+    /// Set the registry configuration
+    pub fn set_config(&mut self, config: RegistryConfig) {
+        self.config = config;
     }
 
     /// Get path to index file
@@ -120,6 +146,92 @@ impl LocalRegistry {
             .as_secs()
     }
 
+    /// Resolve an author's verifying key from the trusted keys directory
+    ///
+    /// Looks for a key file named `{author}.pub` in the trusted keys directory.
+    /// The file should contain the hex-encoded Ed25519 public key.
+    ///
+    /// # Arguments
+    /// * `author` - The author's public key (hex-encoded, 64 characters)
+    ///
+    /// # Returns
+    /// The verifying key if found and valid
+    async fn resolve_author_key(&self, author: &str) -> Result<VerifyingKey, RegistryError> {
+        // First, try to parse the author field directly as a public key
+        // The author field in the manifest is already the hex-encoded public key
+        if let Ok(key) = VerifyingKey::from_hex(author) {
+            return Ok(key);
+        }
+
+        // If that fails, try to look up the key in the trusted keys directory
+        if let Some(ref keys_dir) = self.config.trusted_keys_dir {
+            let key_path = keys_dir.join(format!("{}.pub", author));
+            if key_path.exists() {
+                let key_hex = fs::read_to_string(&key_path).await.map_err(|e| {
+                    RegistryError::InvalidManifest(format!("Failed to read key file: {}", e))
+                })?;
+                let key_hex = key_hex.trim();
+                return VerifyingKey::from_hex(key_hex).map_err(|e| {
+                    RegistryError::InvalidSignature {
+                        spirit: author.to_string(),
+                        reason: format!("Invalid key format: {}", e),
+                    }
+                });
+            }
+        }
+
+        Err(RegistryError::AuthorKeyNotFound {
+            author: author.to_string(),
+        })
+    }
+
+    /// Verify the signature on a manifest
+    ///
+    /// # Arguments
+    /// * `manifest` - The manifest to verify
+    ///
+    /// # Returns
+    /// Ok(()) if signature is valid, or an error otherwise
+    async fn verify_manifest_signature(&self, manifest: &Manifest) -> Result<(), RegistryError> {
+        let name = &manifest.name;
+
+        // Check if signatures are required
+        if self.config.require_signatures {
+            // Check if this author is allowed unsigned
+            if self
+                .config
+                .unsigned_allowed_authors
+                .contains(&manifest.author)
+            {
+                // Author is in the allowed list, signature not required
+                return Ok(());
+            }
+
+            // Signature is required
+            if manifest.signature.is_none() {
+                return Err(RegistryError::UnsignedSpirit {
+                    spirit: name.clone(),
+                });
+            }
+        }
+
+        // If there's a signature, verify it
+        if manifest.signature.is_some() {
+            // Get the author's verifying key
+            let _verifying_key = self.resolve_author_key(&manifest.author).await?;
+
+            // Use the manifest's built-in verify method
+            manifest
+                .verify()
+                .map_err(|e| RegistryError::InvalidSignature {
+                    spirit: name.clone(),
+                    reason: e.to_string(),
+                })?;
+        }
+
+        Ok(())
+    }
+
     /// Install from a local directory containing manifest and wasm
     async fn install_from_dir(
         &mut self,
@@ -144,6 +256,9 @@ impl LocalRegistry {
                 source_path.display()
             )));
         }
+
+        // Verify signature before proceeding with installation
+        self.verify_manifest_signature(&manifest).await?;
 
         let name = manifest.name.clone();
         let version = manifest.version.to_string();
@@ -710,5 +825,212 @@ mod tests {
         let results = registry.search(&query).await.unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].name, "searchable-spirit");
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // SIGNATURE VERIFICATION TESTS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    use crate::signature::SigningKey;
+
+    /// Create a signed test spirit with a valid signature
+    async fn create_signed_spirit(
+        dir: &Path,
+        name: &str,
+        version: &str,
+    ) -> Result<(), std::io::Error> {
+        // Generate a keypair
+        let signing_key = SigningKey::generate();
+        let verifying_key = signing_key.verifying_key();
+        let author = verifying_key.to_hex();
+
+        let mut manifest = Manifest::new(name, version.parse().unwrap(), author);
+
+        // Sign the manifest
+        let signature = manifest
+            .sign(&ed25519_dalek::SigningKey::from_bytes(
+                &signing_key.to_bytes(),
+            ))
+            .unwrap();
+        manifest.signature = Some(signature);
+
+        let manifest_json = serde_json::to_string_pretty(&manifest).unwrap();
+        fs::write(dir.join("manifest.json"), manifest_json).await?;
+
+        // Minimal valid WASM module (empty module)
+        let wasm_bytes: Vec<u8> = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
+        fs::write(dir.join("spirit.wasm"), wasm_bytes).await?;
+
+        Ok(())
+    }
+
+    /// Create a spirit with an invalid signature
+    async fn create_invalid_signature_spirit(
+        dir: &Path,
+        name: &str,
+        version: &str,
+    ) -> Result<(), std::io::Error> {
+        // Generate a keypair for the author
+        let signing_key = SigningKey::generate();
+        let verifying_key = signing_key.verifying_key();
+        let author = verifying_key.to_hex();
+
+        // Generate a different keypair to sign with (wrong key)
+        let wrong_signing_key = SigningKey::generate();
+
+        let mut manifest = Manifest::new(name, version.parse().unwrap(), author);
+
+        // Sign with the wrong key
+        let signature = manifest
+            .sign(&ed25519_dalek::SigningKey::from_bytes(
+                &wrong_signing_key.to_bytes(),
+            ))
+            .unwrap();
+        manifest.signature = Some(signature);
+
+        let manifest_json = serde_json::to_string_pretty(&manifest).unwrap();
+        fs::write(dir.join("manifest.json"), manifest_json).await?;
+
+        // Minimal valid WASM module (empty module)
+        let wasm_bytes: Vec<u8> = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
+        fs::write(dir.join("spirit.wasm"), wasm_bytes).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_install_rejects_invalid_signature() {
+        let temp = TempDir::new().unwrap();
+        let spirit_dir = temp.path().join("invalid-sig-spirit");
+        fs::create_dir_all(&spirit_dir).await.unwrap();
+        create_invalid_signature_spirit(&spirit_dir, "invalid-sig-spirit", "0.1.0")
+            .await
+            .unwrap();
+
+        let registry_dir = temp.path().join("registry");
+        let mut registry = LocalRegistry::with_root(&registry_dir);
+        registry.init().await.unwrap();
+
+        // Installation should fail due to invalid signature
+        let result = registry.install(spirit_dir.to_str().unwrap()).await;
+        assert!(
+            matches!(result, Err(RegistryError::InvalidSignature { .. })),
+            "Expected InvalidSignature error, got: {:?}",
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn test_install_accepts_valid_signature() {
+        let temp = TempDir::new().unwrap();
+        let spirit_dir = temp.path().join("valid-sig-spirit");
+        fs::create_dir_all(&spirit_dir).await.unwrap();
+        create_signed_spirit(&spirit_dir, "valid-sig-spirit", "0.1.0")
+            .await
+            .unwrap();
+
+        let registry_dir = temp.path().join("registry");
+        let mut registry = LocalRegistry::with_root(&registry_dir);
+        registry.init().await.unwrap();
+
+        // Installation should succeed with valid signature
+        let result = registry.install(spirit_dir.to_str().unwrap()).await;
+        assert!(
+            result.is_ok(),
+            "Expected successful installation, got: {:?}",
+            result
+        );
+
+        let installed = result.unwrap();
+        assert_eq!(installed.name, "valid-sig-spirit");
+        assert_eq!(installed.latest, "0.1.0");
+    }
+
+    #[tokio::test]
+    async fn test_install_allows_unsigned_when_not_required() {
+        let temp = TempDir::new().unwrap();
+        let spirit_dir = temp.path().join("unsigned-spirit");
+        fs::create_dir_all(&spirit_dir).await.unwrap();
+        // create_test_spirit creates an unsigned spirit
+        create_test_spirit(&spirit_dir, "unsigned-spirit", "0.1.0")
+            .await
+            .unwrap();
+
+        let registry_dir = temp.path().join("registry");
+        // Default config has require_signatures = false
+        let mut registry = LocalRegistry::with_root(&registry_dir);
+        registry.init().await.unwrap();
+
+        // Installation should succeed when signatures are not required
+        let result = registry.install(spirit_dir.to_str().unwrap()).await;
+        assert!(
+            result.is_ok(),
+            "Expected successful installation, got: {:?}",
+            result
+        );
+
+        let installed = result.unwrap();
+        assert_eq!(installed.name, "unsigned-spirit");
+    }
+
+    #[tokio::test]
+    async fn test_install_rejects_unsigned_when_required() {
+        let temp = TempDir::new().unwrap();
+        let spirit_dir = temp.path().join("must-sign-spirit");
+        fs::create_dir_all(&spirit_dir).await.unwrap();
+        // create_test_spirit creates an unsigned spirit
+        create_test_spirit(&spirit_dir, "must-sign-spirit", "0.1.0")
+            .await
+            .unwrap();
+
+        let registry_dir = temp.path().join("registry");
+        // Create config that requires signatures
+        let config = RegistryConfig {
+            require_signatures: true,
+            trusted_keys_dir: None,
+            unsigned_allowed_authors: vec![],
+        };
+        let mut registry = LocalRegistry::with_config(&registry_dir, config);
+        registry.init().await.unwrap();
+
+        // Installation should fail because signature is required but missing
+        let result = registry.install(spirit_dir.to_str().unwrap()).await;
+        assert!(
+            matches!(result, Err(RegistryError::UnsignedSpirit { .. })),
+            "Expected UnsignedSpirit error, got: {:?}",
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn test_install_allows_unsigned_for_allowed_author() {
+        let temp = TempDir::new().unwrap();
+        let spirit_dir = temp.path().join("allowed-unsigned");
+        fs::create_dir_all(&spirit_dir).await.unwrap();
+        // create_test_spirit creates an unsigned spirit with author = "a".repeat(64)
+        create_test_spirit(&spirit_dir, "allowed-unsigned", "0.1.0")
+            .await
+            .unwrap();
+
+        let registry_dir = temp.path().join("registry");
+        // Create config that requires signatures but allows this author
+        let config = RegistryConfig {
+            require_signatures: true,
+            trusted_keys_dir: None,
+            unsigned_allowed_authors: vec!["a".repeat(64)],
+        };
+        let mut registry = LocalRegistry::with_config(&registry_dir, config);
+        registry.init().await.unwrap();
+
+        // Installation should succeed because this author is in the allowed list
+        let result = registry.install(spirit_dir.to_str().unwrap()).await;
+        assert!(
+            result.is_ok(),
+            "Expected successful installation, got: {:?}",
+            result
+        );
+
+        let installed = result.unwrap();
+        assert_eq!(installed.name, "allowed-unsigned");
     }
 }

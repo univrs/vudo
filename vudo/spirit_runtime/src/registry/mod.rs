@@ -65,5 +65,6 @@ pub use search::{compare_versions, filter_by_capability, matches_name_pattern, s
 pub use search::{QueryBuilder, SortBy, SortOrder};
 pub use traits::{Registry, RegistryExt};
 pub use types::{
-    InstallSource, InstalledSpirit, RegistryError, RegistryIndex, SpiritQuery, SpiritSearchResult,
+    InstallSource, InstalledSpirit, RegistryConfig, RegistryError, RegistryIndex, SpiritQuery,
+    SpiritSearchResult,
 };
