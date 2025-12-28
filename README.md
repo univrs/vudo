@@ -1,140 +1,197 @@
-# VUDO OS Vision Package
+# VUDO
 
-> *"VUDO *.dols"* — The system that knows what it is
+**Secure WebAssembly runtime for Spirit packages.**
 
----
-
-## Document Overview
-
-This package contains the complete strategic vision and technical specification for VUDO OS and the DOL 2.0 language evolution.
-
-### Documents
-
-| File | Description |
-|------|-------------|
-| `01-VUDO-OS-VISION.md` | Executive vision, architecture, dual vocabulary system, Imaginarium concept |
-| `02-DOL-2.0-SPECIFICATION.md` | Complete Turing-complete language specification with MLIR alignment |
-| `03-THREE-YEAR-ROADMAP.md` | Quarterly milestones from Genesis to Imaginarium launch |
-| `04-CLAUDE-FLOW-YEAR1-SWARM.md` | Detailed multi-agent task definitions and dependencies |
-| `claude-flow-vudo-y1.yaml` | Executable swarm configuration for claude-flow |
+VUDO provides a capability-based sandbox for executing Spirits - secure, metered WebAssembly programs with cryptographic verification.
 
 ---
 
-## Quick Reference
-
-### The Two Vocabularies
-
-**For Developers (DOL Language):**
-- `fun`, `type`, `module`, `import` — standard programming
-- `Gene`, `Trait`, `Constraint`, `System`, `Evolves` — ontological primitives
-
-**For Users (VUDO Platform):**
-- `Loa` (services), `Veve` (patterns), `Séance` (sessions)
-- `Spirit` (packages), `Ghost` (ephemeral), `Spell` (transforms)
-- `Mycelium` (network), `Substrate` (resources), `Medium` (MCP)
-
-### Year 1 Exit Criterion
+## Quick Start
 
 ```bash
-$ ./bootstrap.sh
-# DOL compiles itself to WASM
-# Stage 1 and Stage 2 outputs are identical
-$ echo "DOL self-hosting achieved!"
+# Create a new Spirit
+vudo new my-spirit
+cd my-spirit
+
+# Build and run
+vudo build
+vudo run
+
+# Package and sign
+vudo pack
+vudo sign my-spirit.spirit
+
+# Install to local registry
+vudo summon ./my-spirit.spirit
 ```
-
-### Key Milestones
-
-| Quarter | Goal |
-|---------|------|
-| Y1 Q1 | DOL Turing extensions (types, control flow) |
-| Y1 Q2 | Functional composition + meta-programming |
-| Y1 Q3 | LLVM MCP Server + WASM emission |
-| Y1 Q4 | Self-hosting bootstrap |
-| Y2 | VUDO OS + Tauri IDE |
-| Y3 | Imaginarium public launch |
 
 ---
 
-## Getting Started
+## Features
 
-### Using the Claude-Flow Swarm
+| Feature | Description |
+|---------|-------------|
+| **Sandbox Isolation** | 6-state lifecycle (Created → Initializing → Running → Suspended → Terminated) |
+| **Capability System** | 14 capability types with cryptographic grants |
+| **Fuel Metering** | Deterministic execution bounds (default: 1B units) |
+| **Ed25519 Signatures** | Full signing and verification for Spirit packages |
+| **Local Registry** | Filesystem-based Spirit storage (~/.vudo/registry/) |
+| **15+ CLI Commands** | Complete developer workflow |
+
+---
+
+## CLI Commands
 
 ```bash
-# Install claude-flow (when available)
-npm install -g @anthropic/claude-flow
+# Project
+vudo new <name>         # Create new Spirit project
+vudo build              # Compile to WASM
+vudo run                # Execute in sandbox
+vudo test               # Run Spirit tests
 
-# Run the swarm
-claude-flow run claude-flow-vudo-y1.yaml --workflow full-genesis
+# Packaging
+vudo pack               # Create .spirit package
+vudo sign <file>        # Ed25519 signature
+vudo check              # Validate manifest
 
-# Or run validation only
-claude-flow run claude-flow-vudo-y1.yaml --workflow quick-validate
-```
+# Registry
+vudo summon <source>    # Install Spirit
+vudo search <query>     # Search registry
+vudo list               # List installed
+vudo info <name>        # Show Spirit info
+vudo uninstall <name>   # Remove Spirit
 
-### Reading Order
-
-1. **Vision First**: Read `01-VUDO-OS-VISION.md` to understand the why
-2. **Language Second**: Study `02-DOL-2.0-SPECIFICATION.md` for the what
-3. **Roadmap Third**: Review `03-THREE-YEAR-ROADMAP.md` for the when
-4. **Swarm Last**: Dive into `04-CLAUDE-FLOW-YEAR1-SWARM.md` for the how
-
----
-
-## Key Concepts
-
-### Self-Referential Bootstrap
-
-DOL will compile itself:
-
-```
-Rust DOL Compiler (Stage 0)
-    │
-    ▼ compiles
-DOL Source (dol/*.dol)
-    │
-    ▼ produces
-DOL WASM Compiler (Stage 1)
-    │
-    ▼ compiles
-DOL Source (dol/*.dol)
-    │
-    ▼ produces
-DOL WASM Compiler (Stage 2)
-    │
-    ▼ verify
-Stage 1 == Stage 2 ✓
-```
-
-### MLIR Alignment
-
-DOL types map directly to MLIR:
-
-| DOL | MLIR |
-|-----|------|
-| `Int32` | `!i32` |
-| `Float64` | `!f64` |
-| `Gene<T>` | `!dol.gene<T>` |
-| `if {} else {}` | `scf.if` |
-| `for x in items {}` | `scf.for` |
-
-### The Imaginarium Economy
-
-```
-Creator → publishes Spirit → Marketplace
-                               ↓
-User ← summons ← discovers ← browses
-  ↓
-Credits flow: User → Creator + Network + Ancestors
+# Tools
+vudo fmt                # Format manifest
+vudo doc                # Generate docs
+vudo dol                # DOL REPL (stub)
 ```
 
 ---
 
-## Next Actions
+## Architecture
 
-1. **Review documents** with stakeholders
-2. **Refine specifications** based on feedback
-3. **Initialize claude-flow** swarm for Q1 tasks
-4. **Begin dol-type-spec** agent work
+```
+┌─────────────────────────────────────────────────────────┐
+│                      vudo CLI                           │
+│  new, build, run, test, pack, sign, publish, summon     │
+└─────────────────────────┬───────────────────────────────┘
+                          │
+          ┌───────────────┴───────────────┐
+          ▼                               ▼
+┌─────────────────────┐       ┌─────────────────────┐
+│   spirit_runtime    │       │    Local Registry   │
+│                     │◄─────►│                     │
+│  Manifest Parsing   │       │  ~/.vudo/registry/  │
+│  Ed25519 Signing    │       │  index.json         │
+│  Dep Resolution     │       │  spirits/           │
+└─────────┬───────────┘       └─────────────────────┘
+          │
+          ▼
+┌─────────────────────────────────────────────────────────┐
+│                       vudo_vm                           │
+│                                                         │
+│  Sandbox Manager ──► Lifecycle (6 states)               │
+│  Capability Set  ──► Permission Enforcement             │
+│  Fuel Manager    ──► Execution Metering                 │
+│  Host Functions  ──► 15 syscalls                        │
+└─────────────────────────┬───────────────────────────────┘
+                          │
+                          ▼
+                    ┌───────────┐
+                    │  wasmtime │
+                    └───────────┘
+```
 
 ---
 
-*"From ontology to ecosystem, specification to civilization."*
+## Capability Types
+
+```
+Network:    NetworkListen, NetworkConnect, NetworkBroadcast
+Storage:    StorageRead, StorageWrite, StorageDelete
+Compute:    SpawnSandbox, CrossSandboxCall
+Sensor:     SensorTime, SensorRandom, SensorEnvironment
+Actuator:   ActuatorLog, ActuatorNotify, ActuatorCredit
+Special:    Unrestricted (system Spirits only)
+```
+
+---
+
+## Spirit Manifest
+
+```toml
+name = "my-spirit"
+version = { major = 1, minor = 0, patch = 0 }
+author = "<64-char-hex-ed25519-public-key>"
+description = "My first Spirit"
+license = "MIT"
+capabilities = ["sensor_time", "actuator_log"]
+
+[dependencies]
+other-spirit = "^1.0"
+
+[pricing]
+base_cost = 100
+per_fuel_cost = 1
+```
+
+---
+
+## Crates
+
+| Crate | Description | Tests |
+|-------|-------------|-------|
+| `vudo_vm` | WebAssembly sandbox with capabilities | 188+ |
+| `spirit_runtime` | Package management and signatures | 98+ |
+| `vudo_cli` | Command-line interface | 34+ |
+
+**Total: 362+ tests passing**
+
+---
+
+## Development
+
+```bash
+# Build all crates
+cargo build --workspace
+
+# Run tests
+cargo test --workspace
+
+# Check code quality
+cargo clippy --workspace -- -D warnings
+cargo fmt --all -- --check
+```
+
+---
+
+## Status
+
+**Phase 2: Complete**
+
+- VUDO VM with sandbox lifecycle and fuel metering
+- Spirit Runtime with Ed25519 signatures
+- Local registry with dependency resolution
+- Full CLI with 15+ commands
+
+**Next: Phase 3 - Hyphal Network**
+
+- P2P Spirit distribution
+- Imaginarium distributed registry
+- Cross-node sandbox migration
+- DOL v0.3.0 → WASM pipeline
+
+---
+
+## Links
+
+- **DOL Language**: [github.com/univrs/dol](https://github.com/univrs/dol)
+- **DOL on Crates.io**: [crates.io/crates/dol](https://crates.io/crates/dol)
+- **Documentation**: [learn.univrs.io](https://learn.univrs.io)
+
+---
+
+## License
+
+MIT
