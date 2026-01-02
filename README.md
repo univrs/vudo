@@ -4,6 +4,9 @@
 
 VUDO provides a capability-based sandbox for executing Spirits - secure, metered WebAssembly programs with cryptographic verification.
 
+> [!CAUTION]
+> This project is a research demonstrator. It is in early development and may change significantly. Using permissive Univrs tools in your repository requires careful attention to security considerations and careful human supervision, and even then things can still go wrong. Use it with caution, and at your own risk. See [Disclaimer](#disclaimer).
+
 ---
 
 ## Quick Start
@@ -205,6 +208,19 @@ cargo fmt --all -- --check
 - **DOL Language**: [github.com/univrs/dol](https://github.com/univrs/dol)
 - **DOL on Crates.io**: [crates.io/crates/dol](https://crates.io/crates/dol)
 - **Documentation**: [learn.univrs.io](https://learn.univrs.io)
+
+---
+
+## Disclaimer
+
+> [!IMPORTANT]
+> **This is an experimental system. _We break things frequently_.**
+
+- Not accepting contributions yet (but we plan to!)
+- No stability guarantees
+- Pin commits if you need consistency
+- This is a learning resource, not production software
+- **No support provided** - See [SUPPORT.md](SUPPORT.md)
 
 ---
 
