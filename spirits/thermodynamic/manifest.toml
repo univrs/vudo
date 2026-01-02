@@ -1,0 +1,12 @@
+[spirit]
+name = "thermodynamic"
+version = "0.1.0"
+author = "univrs-team"
+description = "EROEI and Small-World calculators for thermodynamic economics"
+
+[capabilities]
+compute = true
+
+[pricing]
+base_cost = 100
+per_fuel_cost = 1

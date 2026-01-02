@@ -1,0 +1,119 @@
+// EROEI Calculator - DOL Schema
+// Energy Return on Energy Invested calculations for thermodynamic economics
+
+module eroei @ 0.1.0
+
+// Energy type constants (in lieu of enum)
+// SolarPV=0, WindOnshore=1, WindOffshore=2, Hydro=3, Geothermal=4
+// NaturalGas=5, Coal=6, Nuclear=7, BatteryStorage=8
+// Distribution=9, Computation=10, Network=11
+
+gene EnergyComponent {
+    has name_id: i64
+    has component_type: i64
+    has energy_output_kwh_year: f64
+    has energy_input_kwh_year: f64
+    has embodied_energy_kwh: f64
+    has lifespan_years: f64
+
+    constraint positive_lifespan {
+        lifespan_years > 0.0
+    }
+
+    fun annualized_embodied() -> f64 {
+        return embodied_energy_kwh / lifespan_years
+    }
+
+    fun total_annual_input() -> f64 {
+        let amortized: f64 = embodied_energy_kwh / lifespan_years
+        return energy_input_kwh_year + amortized
+    }
+
+    fun eroei() -> f64 {
+        let input: f64 = energy_input_kwh_year + embodied_energy_kwh / lifespan_years
+        if input <= 0.0 {
+            return 999999.0
+        }
+        return energy_output_kwh_year / input
+    }
+}
+
+// Energy system aggregator
+gene EnergySystemMetrics {
+    has total_output_kwh: f64
+    has total_input_kwh: f64
+    has component_count: i64
+
+    fun system_eroei() -> f64 {
+        if total_input_kwh <= 0.0 {
+            return 0.0
+        }
+        return total_output_kwh / total_input_kwh
+    }
+
+    fun net_energy() -> f64 {
+        return total_output_kwh - total_input_kwh
+    }
+
+    fun is_viable() -> f64 {
+        let eroei: f64 = total_output_kwh / total_input_kwh
+        if eroei >= 7.0 {
+            return 1.0
+        }
+        return 0.0
+    }
+
+    fun viability_level() -> i64 {
+        let eroei: f64 = total_output_kwh / total_input_kwh
+        if eroei >= 20.0 {
+            return 5
+        }
+        if eroei >= 12.0 {
+            return 4
+        }
+        if eroei >= 7.0 {
+            return 3
+        }
+        if eroei >= 5.0 {
+            return 2
+        }
+        if eroei >= 3.0 {
+            return 1
+        }
+        return 0
+    }
+}
+
+// Example solar PV system (1 MW)
+fun create_solar_pv_component() -> f64 {
+    // Returns EROEI for 1 MW solar PV
+    // Output: 1,500,000 kWh/year (17% capacity factor)
+    // Input: 10,000 kWh/year operations
+    // Embodied: 1,500,000 kWh over 25 years = 60,000/year
+    let output: f64 = 1500000.0
+    let operational: f64 = 10000.0
+    let annualized_embodied: f64 = 60000.0
+    let total_input: f64 = operational + annualized_embodied
+    return output / total_input
+}
+
+// Hyphal network energy (pure consumer)
+fun hyphal_node_energy(num_nodes: i64, power_per_node_w: f64) -> f64 {
+    // Returns annual energy consumption in kWh
+    let hours_per_year: f64 = 8760.0
+    let node_count: f64 = num_nodes as f64
+    return node_count * power_per_node_w * hours_per_year / 1000.0
+}
+
+// Calculate max nodes supportable by solar capacity
+fun max_supported_nodes(solar_mw: f64, node_power_w: f64) -> i64 {
+    let capacity_factor: f64 = 0.17
+    let distribution_efficiency: f64 = 0.80
+    let hours_per_year: f64 = 8760.0
+
+    let annual_kwh: f64 = solar_mw * 1000.0 * capacity_factor * hours_per_year
+    let usable_kwh: f64 = annual_kwh * distribution_efficiency
+    let per_node_kwh: f64 = node_power_w * hours_per_year / 1000.0
+
+    return (usable_kwh / per_node_kwh) as i64
+}

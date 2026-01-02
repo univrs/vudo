@@ -1,0 +1,112 @@
+// Small-World Network Metrics - DOL Schema
+// Watts-Strogatz metrics for network analysis
+
+module small_world @ 0.1.0
+
+gene Edge {
+    has from_node: i64
+    has to_node: i64
+}
+
+gene GraphMetrics {
+    has node_count: i64
+    has edge_count: i64
+    has clustering: f64
+    has path_length: f64
+
+    fun average_degree() -> f64 {
+        let n: f64 = node_count as f64
+        let m: f64 = edge_count as f64
+        return 2.0 * m / n
+    }
+}
+
+gene SmallWorldMetrics {
+    has n: i64
+    has m: i64
+    has k: f64
+    has clustering: f64
+    has path_length: f64
+    has c_random: f64
+    has l_random: f64
+
+    constraint valid_clustering {
+        clustering >= 0.0
+    }
+
+    fun gamma() -> f64 {
+        if c_random <= 0.0 {
+            return 0.0
+        }
+        return clustering / c_random
+    }
+
+    fun lambda() -> f64 {
+        if l_random <= 0.0 {
+            return 0.0
+        }
+        return path_length / l_random
+    }
+
+    fun sigma() -> f64 {
+        let g: f64 = clustering / c_random
+        let l: f64 = path_length / l_random
+        if l <= 0.0 {
+            return 0.0
+        }
+        return g / l
+    }
+
+    fun is_small_world() -> f64 {
+        let g: f64 = clustering / c_random
+        let l: f64 = path_length / l_random
+        let s: f64 = g / l
+        if s > 1.0 {
+            return 1.0
+        }
+        return 0.0
+    }
+}
+
+// Calculate random graph clustering expectation
+// C_random = k / n
+fun random_clustering(n: i64, k: f64) -> f64 {
+    let node_count: f64 = n as f64
+    return k / node_count
+}
+
+// Calculate random graph path length expectation
+// L_random = ln(n) / ln(k)
+// Note: actual ln requires math stdlib
+fun random_path_length_approx(n: i64, k: f64) -> f64 {
+    // Approximate using series expansion for small networks
+    // For accurate results, use math.ln
+    let node_count: f64 = n as f64
+    return node_count / k
+}
+
+// Calculate small-world sigma coefficient
+fun calculate_sigma(c: f64, l: f64, c_random: f64, l_random: f64) -> f64 {
+    if c_random <= 0.0 {
+        return 0.0
+    }
+    if l_random <= 0.0 {
+        return 0.0
+    }
+    let gamma: f64 = c / c_random
+    let lambda: f64 = l / l_random
+    if lambda <= 0.0 {
+        return 0.0
+    }
+    return gamma / lambda
+}
+
+// Check if network has small-world properties
+fun is_small_world_network(sigma: f64, min_clustering: f64, c: f64) -> f64 {
+    if sigma > 1.0 {
+        if c >= min_clustering {
+            return 1.0
+        }
+    }
+    return 0.0
+}
