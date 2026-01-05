@@ -82,6 +82,28 @@ gene EnergySystemMetrics {
         }
         return 0
     }
+
+    fun viability_assessment() -> i64 {
+        // Returns numeric code for viability level
+        // 5=Excellent, 4=Good, 3=Marginal, 2=Critical, 1=Subsistence, 0=Non-viable
+        let eroei: f64 = total_output_kwh / total_input_kwh
+        if eroei >= 20.0 {
+            return 5
+        }
+        if eroei >= 12.0 {
+            return 4
+        }
+        if eroei >= 7.0 {
+            return 3
+        }
+        if eroei >= 5.0 {
+            return 2
+        }
+        if eroei >= 3.0 {
+            return 1
+        }
+        return 0
+    }
 }
 
 // Example solar PV system (1 MW)
@@ -116,4 +138,32 @@ fun max_supported_nodes(solar_mw: f64, node_power_w: f64) -> i64 {
     let per_node_kwh: f64 = node_power_w * hours_per_year / 1000.0
 
     return (usable_kwh / per_node_kwh) as i64
+}
+
+// Alias for create_solar_pv_component (for CLI compatibility)
+fun create_solar_pv_eroei() -> f64 {
+    let output: f64 = 1500000.0
+    let operational: f64 = 10000.0
+    let annualized_embodied: f64 = 60000.0
+    let total_input: f64 = operational + annualized_embodied
+    return output / total_input
+}
+
+// Create example solar system metrics (1 MW installation)
+fun solar_system_example() -> EnergySystemMetrics {
+    // 1 MW solar at 17% capacity factor = 1,489,200 kWh/year
+    // Inputs: 10,000 kWh ops + 60,000 kWh amortized embodied
+    let output: f64 = 1489200.0
+    let input: f64 = 70000.0
+    return EnergySystemMetrics::new(output, input, 1)
+}
+
+// Create hyphal network system metrics
+fun hyphal_network_example(num_nodes: i64) -> EnergySystemMetrics {
+    // Hyphal nodes are pure consumers (no energy output)
+    // Each node: 10W average * 8760 hours = 87.6 kWh/year
+    let per_node_kwh: f64 = 87.6
+    let node_count: f64 = num_nodes as f64
+    let total_input: f64 = node_count * per_node_kwh
+    return EnergySystemMetrics::new(0.0, total_input, num_nodes)
 }

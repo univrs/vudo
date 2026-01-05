@@ -66,6 +66,27 @@ gene SmallWorldMetrics {
         }
         return 0.0
     }
+
+    fun interpretation() -> i64 {
+        // Returns interpretation code:
+        // 3 = Strong small-world (sigma > 3.0)
+        // 2 = Moderate small-world (sigma > 1.5)
+        // 1 = Weak small-world (sigma > 1.0)
+        // 0 = Not small-world
+        let g: f64 = clustering / c_random
+        let l: f64 = path_length / l_random
+        let s: f64 = g / l
+        if s > 3.0 {
+            return 3
+        }
+        if s > 1.5 {
+            return 2
+        }
+        if s > 1.0 {
+            return 1
+        }
+        return 0
+    }
 }
 
 // Calculate random graph clustering expectation
@@ -109,4 +130,26 @@ fun is_small_world_network(sigma: f64, min_clustering: f64, c: f64) -> f64 {
         }
     }
     return 0.0
+}
+
+// Alias for random_path_length_approx (CLI compatibility)
+fun random_path_length(n: i64, k: f64) -> f64 {
+    let node_count: f64 = n as f64
+    return node_count / k
+}
+
+// Dunbar-sized cluster example (N=150, typical human social network size)
+fun dunbar_cluster_example() -> SmallWorldMetrics {
+    // N = 150 (Dunbar's number)
+    // Typical degree k = 6 (6 close connections per node)
+    // Observed clustering C = 0.5 (high clustering in social networks)
+    // Observed path length L = 2.5 (typical small-world property)
+    let n: i64 = 150
+    let m: i64 = 450
+    let k: f64 = 6.0
+    let clustering: f64 = 0.5
+    let path_length: f64 = 2.5
+    let c_random: f64 = k / 150.0
+    let l_random: f64 = 150.0 / k
+    return SmallWorldMetrics::new(n, m, k, clustering, path_length, c_random, l_random)
 }
