@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  vudo:
+    name: fmt · clippy · test (vudo workspace)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: vudo
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            vudo/target
+          key: ${{ runner.os }}-vudo-${{ hashFiles('vudo/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-vudo-
+
+      - name: Format
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace
+
+      # Spirit Hosting Plan H0 exit oracles (negative oracles included):
+      # build never writes a placeholder; run fails on trap/fuel exhaustion;
+      # publish/summon never report success. Listed separately so a filter
+      # change can't silently drop them.
+      - name: H0 toolchain-truth oracles
+        run: cargo test -p vudo_cli --test e2e_spirit_lifecycle test_h0
