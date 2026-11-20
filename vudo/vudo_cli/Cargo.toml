@@ -30,7 +30,7 @@ hex = { workspace = true }
 rand = { workspace = true }
 dirs = { workspace = true }
 # DOL compiler (crate `dol`, lib `metadol`): WASM codegen only, no wasmtime/MLIR
-dol = { version = "0.8.1", default-features = false, features = ["wasm-compile"] }
+dol = { version = "0.8.2", default-features = false, features = ["wasm-compile"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }

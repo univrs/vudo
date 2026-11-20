@@ -116,9 +116,9 @@ pub async fn execute(args: BuildArgs, _config: &VudoConfig) -> Result<()> {
 
 /// Parse DOL source and compile it to WASM with the real DOL compiler.
 ///
-/// Mirrors `metadol::compile_source` from univrs/dol main (dol#31). The
-/// published 0.8.1 `compile_source` still emits a placeholder module, so the
-/// parser and `WasmCompiler` are called directly.
+/// Calls the parser and `WasmCompiler` directly (rather than
+/// `metadol::compile_source`) because `--emit ast` needs the parsed AST too.
+/// Requires dol >= 0.8.2 for host imports on the VUDO VM ABI (`vudo`/`host_*`).
 fn compile_dol(source: &str) -> Result<(metadol::DolFile, Vec<u8>)> {
     let ast = metadol::parse_dol_file(source).map_err(|e| anyhow::anyhow!("parse error: {}", e))?;
     let wasm = metadol::WasmCompiler::new()
