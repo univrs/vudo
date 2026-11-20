@@ -529,9 +529,9 @@ dependencies = [
 
 [[package]]
 name = "dol"
-version = "0.8.1"
+version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "623870606116b904e0fcd20dd059ac0750464e40e8d1cfdd0809045a79d434f4"
+checksum = "c4e56e1f5ae512d4f3c38288d64d660f5824298090e923a0094325136541d5dd"
 dependencies = [
  "logos",
  "thiserror 1.0.69",

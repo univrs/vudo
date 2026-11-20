@@ -1290,3 +1290,46 @@ fn test_h0_granted_global_capability_is_honoured_by_vm() {
         stdout
     );
 }
+
+/// H0 exit oracle, from DOL source: `vudo build` compiles a DOL Spirit that
+/// calls `host_log`, and `vudo run` executes it in the VM and the line appears.
+/// Needs dol >= 0.8.2 (host imports on module `vudo`, string -> (ptr, len)).
+#[test]
+fn test_h0_exit_dol_source_host_log_runs_in_vm() {
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let project_path = create_compatible_spirit_project(temp_dir.path(), "h0-dol-hostlog");
+    write_main_dol(
+        &project_path,
+        "sex fun host_log(level: i32, msg: string) -> i32\n\nsex fun main() -> i64 {\n    return host_log(2, \"hello from DOL\")\n}\n",
+    );
+
+    assert_success(
+        &run_vudo(&["build"], &project_path),
+        "vudo build (DOL calling host_log)",
+    );
+    let wasm = find_built_spirit(&project_path);
+    let output = run_vudo(
+        &["run", wasm.to_str().unwrap(), "--capabilities", "log"],
+        &project_path,
+    );
+    assert_success(&output, "vudo run (DOL calling host_log)");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("[VUDO:INFO] hello from DOL"),
+        "DOL-compiled host_log line must be observed; stdout:\n{}",
+        stdout
+    );
+    assert!(
+        stdout.contains("Result: 0"),
+        "host_log must succeed; stdout:\n{}",
+        stdout
+    );
+}
+
+fn find_built_spirit(project_path: &Path) -> std::path::PathBuf {
+    fs::read_dir(project_path)
+        .expect("read project dir")
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .find(|p| p.extension().is_some_and(|x| x == "spirit"))
+        .expect("vudo build must write a .spirit package")
+}
