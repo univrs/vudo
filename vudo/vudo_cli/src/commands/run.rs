@@ -214,7 +214,7 @@ fn execute_in_sandbox(
         let mut grant = CapabilityGrant::new(
             i as u64 + 1,
             *cap,
-            CapabilityScope::Sandboxed,
+            vm_required_scope(*cap),
             owner,
             owner,
             now,
@@ -249,6 +249,20 @@ fn execute_in_sandbox(
     sandbox
         .invoke(entry, call_args)
         .map_err(|e| anyhow::anyhow!("Failed to invoke `{}`: {}", entry, e))
+}
+
+/// The scope at which `vudo_vm` host functions check each capability.
+///
+/// Storage is checked at `Sandboxed` (per-Spirit namespace); every other host
+/// capability (log, time, random, network, credit) is checked at `Global`. A
+/// grant at a narrower scope is silently useless, so grant what the VM checks.
+fn vm_required_scope(cap: CapabilityType) -> CapabilityScope {
+    match cap {
+        CapabilityType::StorageRead
+        | CapabilityType::StorageWrite
+        | CapabilityType::StorageDelete => CapabilityScope::Sandboxed,
+        _ => CapabilityScope::Global,
+    }
 }
 
 fn to_capability_type(cap: &Capability) -> CapabilityType {

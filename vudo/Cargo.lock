@@ -1852,6 +1852,7 @@ dependencies = [
  "vudo_repl",
  "vudo_vm",
  "wasmtime",
+ "wat",
 ]
 
 [[package]]

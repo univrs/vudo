@@ -1195,3 +1195,98 @@ fn test_h0_pack_has_no_fake_compression() {
     let output = run_vudo(&["pack", "--compress", "zstd"], &project_path);
     assert_failure(&output, "vudo pack --compress (flag removed)");
 }
+
+// ─── Spirit Hosting H0 exit oracle: a Spirit calling host_log is observed ───
+//
+// The module is hand-written WAT against the canonical VM ABI (module "vudo",
+// host_* names; decision D2), so this oracle does not depend on a DOL release.
+// univrs/dol tests/wasm_host_abi.rs proves DOL emits exactly these imports.
+
+const H0_LOG_LINE: &str = "hello from the VUDO VM ABI";
+
+fn write_host_call_spirit(dir: &Path) -> std::path::PathBuf {
+    let wat = format!(
+        r#"(module
+  (import "vudo" "host_log" (func $log (param i32 i32 i32) (result i32)))
+  (import "vudo" "host_time_now" (func $now (result i64)))
+  (memory (export "memory") 1)
+  (data (i32.const 16) "{line}")
+  (func (export "main") (result i64)
+    (i64.extend_i32_s (call $log (i32.const 2) (i32.const 16) (i32.const {len}))))
+  (func (export "now") (result i64) (call $now)))"#,
+        line = H0_LOG_LINE,
+        len = H0_LOG_LINE.len()
+    );
+    let path = dir.join("host-call.spirit");
+    fs::write(&path, wat::parse_str(&wat).expect("valid WAT")).expect("write spirit");
+    path
+}
+
+#[test]
+fn test_h0_exit_host_log_line_is_observed_with_log_capability() {
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let spirit = write_host_call_spirit(temp_dir.path());
+    let output = run_vudo(
+        &["run", spirit.to_str().unwrap(), "--capabilities", "log"],
+        temp_dir.path(),
+    );
+    assert_success(&output, "vudo run with log capability");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains(&format!("[VUDO:INFO] {}", H0_LOG_LINE)),
+        "log line must be observed; stdout:\n{}",
+        stdout
+    );
+    assert!(
+        stdout.contains("Result: 0"),
+        "host_log must return success (0); stdout:\n{}",
+        stdout
+    );
+}
+
+#[test]
+fn test_h0_host_log_never_emits_without_log_capability() {
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let spirit = write_host_call_spirit(temp_dir.path());
+    let output = run_vudo(&["run", spirit.to_str().unwrap()], temp_dir.path());
+    let all = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        !all.contains(H0_LOG_LINE),
+        "a Spirit without the log capability must never log; output:\n{}",
+        all
+    );
+    assert!(
+        all.contains("Result: -1"),
+        "host_log must be denied; output:\n{}",
+        all
+    );
+}
+
+#[test]
+fn test_h0_granted_global_capability_is_honoured_by_vm() {
+    // time is a Global-scope host capability in vudo_vm; a CLI grant must satisfy it.
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let spirit = write_host_call_spirit(temp_dir.path());
+    let output = run_vudo(
+        &[
+            "run",
+            spirit.to_str().unwrap(),
+            "--capabilities",
+            "time",
+            "--entry",
+            "now",
+        ],
+        temp_dir.path(),
+    );
+    assert_success(&output, "vudo run with time capability");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.contains("Result: 0\n") && !stdout.contains("Result: -1"),
+        "host_time_now must return a real timestamp, not 0 or -1; stdout:\n{}",
+        stdout
+    );
+}

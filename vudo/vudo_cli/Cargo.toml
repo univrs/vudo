@@ -34,3 +34,4 @@ dol = { version = "0.8.1", default-features = false, features = ["wasm-compile"]
 
 [dev-dependencies]
 tempfile = { workspace = true }
+wat = "1"
