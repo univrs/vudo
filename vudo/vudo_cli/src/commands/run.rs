@@ -17,9 +17,10 @@ pub struct RunArgs {
     /// Path to Spirit package or project
     pub spirit: Option<PathBuf>,
 
-    /// Fuel limit for execution (default: 1,000,000)
-    #[arg(long, default_value = "1000000")]
-    pub fuel: u64,
+    /// Fuel limit for execution. Overrides manifest `[resources] fuel`
+    /// (default: 1,000,000)
+    #[arg(long)]
+    pub fuel: Option<u64>,
 
     /// Memory limit (e.g., 64mb, 128mb)
     #[arg(long)]
@@ -81,16 +82,24 @@ pub async fn execute(args: RunArgs, _config: &VudoConfig) -> Result<()> {
     println!("{} Spirit: {:?}", "Running".green().bold(), wasm_file);
 
     // Configure resource limits
-    let memory_bytes = parse_memory_limit(args.memory.as_deref())?;
+    // Precedence: CLI flag > manifest [resources] > default.
+    let declared = manifest
+        .as_ref()
+        .and_then(|m| m.resources.clone())
+        .unwrap_or_default();
+    let fuel = args.fuel.or(declared.fuel).unwrap_or(DEFAULT_RUN_FUEL);
     let mut limits = ResourceLimits {
-        max_fuel: args.fuel,
+        max_fuel: fuel,
         ..Default::default()
     };
-    if let Some(mem) = memory_bytes {
-        limits.memory_bytes = mem as u64;
+    if let Some(mem) = parse_memory_limit(args.memory.as_deref())?
+        .map(|m| m as u64)
+        .or(declared.memory_bytes)
+    {
+        limits.memory_bytes = mem;
     }
 
-    println!("  {} {}", "Fuel:".cyan(), args.fuel);
+    println!("  {} {}", "Fuel:".cyan(), fuel);
     println!("  {} {} bytes", "Memory:".cyan(), limits.memory_bytes);
     println!("  {} {}", "Sandbox:".cyan(), args.sandbox);
     println!("  {} {}", "Entry:".cyan(), args.entry);
@@ -180,6 +189,9 @@ fn parse_memory_limit(limit: Option<&str>) -> Result<Option<usize>> {
         }
     }
 }
+
+/// Fuel for `vudo run` when neither `--fuel` nor the manifest sets one.
+const DEFAULT_RUN_FUEL: u64 = 1_000_000;
 
 /// Create a real VUDO VM sandbox, grant the requested capabilities and invoke `entry`.
 fn execute_in_sandbox(

@@ -1333,3 +1333,49 @@ fn find_built_spirit(project_path: &Path) -> std::path::PathBuf {
         .find(|p| p.extension().is_some_and(|x| x == "spirit"))
         .expect("vudo build must write a .spirit package")
 }
+
+// ─── Spirit Hosting H1a: `vudo run` honours manifest [resources] ───
+
+const H1A_LOOP_DOL: &str = "fun main() -> i64 {\n    let i: i64 = 0\n    while i < 20000 {\n        i = i + 1\n    }\n    return i\n}\n";
+
+fn h1a_project(temp: &Path, name: &str, resources: &str) -> std::path::PathBuf {
+    let project_path = create_compatible_spirit_project(temp, name);
+    let manifest = project_path.join("manifest.toml");
+    let mut m = fs::read_to_string(&manifest).unwrap();
+    m.push_str(&format!("\n[resources]\n{}\n", resources));
+    fs::write(&manifest, m).unwrap();
+    write_main_dol(&project_path, H1A_LOOP_DOL);
+    assert_success(&run_vudo(&["build"], &project_path), "vudo build");
+    project_path
+}
+
+#[test]
+fn test_h1a_run_uses_manifest_fuel() {
+    let temp_dir = TempDir::new().expect("temp dir");
+    // The loop fits the CLI default (1,000,000) but not the manifest's 10,000.
+    let p = h1a_project(temp_dir.path(), "h1a-fuel", "fuel = 10000");
+    let output = run_vudo(&["run"], &p);
+    assert_failure(&output, "vudo run must apply manifest fuel = 10000");
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Fuel: 10000"));
+}
+
+#[test]
+fn test_h1a_cli_fuel_overrides_manifest() {
+    let temp_dir = TempDir::new().expect("temp dir");
+    let p = h1a_project(temp_dir.path(), "h1a-override", "fuel = 10000");
+    let output = run_vudo(&["run", "--fuel", "5000000"], &p);
+    assert_success(&output, "--fuel must override manifest fuel");
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Result: 20000"));
+}
+
+#[test]
+fn test_h1a_run_uses_manifest_memory() {
+    let temp_dir = TempDir::new().expect("temp dir");
+    let p = h1a_project(temp_dir.path(), "h1a-mem", "memory_bytes = 1048576");
+    let output = run_vudo(&["run"], &p);
+    assert_success(&output, "run within manifest memory");
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("Memory: 1048576 bytes"),
+        "manifest memory_bytes must be the sandbox limit"
+    );
+}
