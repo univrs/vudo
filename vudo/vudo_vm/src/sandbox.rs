@@ -417,7 +417,7 @@ impl Sandbox {
 
         // Create HostState with all backends and capabilities
         // The owner's public key is used as the account for credit operations
-        let host_state = HostState::new(
+        let mut host_state = HostState::new(
             storage,
             credit,
             network,
@@ -425,9 +425,11 @@ impl Sandbox {
             limits.max_duration,
             owner,
         );
+        host_state.set_memory_limit(limits.memory_bytes);
 
-        // Create store with HostState
+        // Create store with HostState; enforce memory_bytes on linear memory
         let mut store = Store::new(&engine, host_state);
+        store.limiter(|state| state.store_limits());
 
         // Set initial fuel
         store
@@ -508,6 +510,18 @@ impl Sandbox {
             self.state = SandboxState::Failed;
             SandboxError::InvalidModule(format!("Failed to compile module: {}", e))
         })?;
+
+        // Reject modules whose initial linear memory already exceeds the limit,
+        // with a clear error instead of an opaque instantiation failure.
+        if let Some(initial) = module.resources_required().max_initial_memory_size {
+            if initial > self.limits.memory_bytes {
+                self.state = SandboxState::Failed;
+                return Err(SandboxError::InvalidModule(format!(
+                    "initial memory {} bytes exceeds sandbox memory limit {} bytes",
+                    initial, self.limits.memory_bytes
+                )));
+            }
+        }
 
         self.module = Some(module);
         self.state = SandboxState::Ready;

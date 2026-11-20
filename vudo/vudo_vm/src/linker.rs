@@ -22,7 +22,7 @@
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use wasmtime::{Caller, Engine, Linker, Memory};
+use wasmtime::{Caller, Engine, Linker, Memory, StoreLimits, StoreLimitsBuilder};
 
 use crate::capability::CapabilitySet;
 use crate::host::credit::PublicKey;
@@ -130,6 +130,10 @@ pub struct HostState {
     /// WASM linear memory, set after module instantiation.
     /// This is required for host functions that read/write memory.
     memory: Option<Memory>,
+
+    /// Store resource limits (linear memory). Installed as the store's
+    /// `ResourceLimiter`; growth past the limit makes `memory.grow` return -1.
+    limits: StoreLimits,
 }
 
 impl HostState {
@@ -160,7 +164,22 @@ impl HostState {
             timeout,
             account,
             memory: None,
+            limits: StoreLimits::default(),
         }
+    }
+
+    /// Cap total linear memory at `bytes`. Growth beyond the cap fails with
+    /// `memory.grow` returning -1 (no trap).
+    pub fn set_memory_limit(&mut self, bytes: u64) {
+        self.limits = StoreLimitsBuilder::new()
+            .memory_size(usize::try_from(bytes).unwrap_or(usize::MAX))
+            .trap_on_grow_failure(false)
+            .build();
+    }
+
+    /// The store limiter (pass to `Store::limiter`).
+    pub fn store_limits(&mut self) -> &mut StoreLimits {
+        &mut self.limits
     }
 
     /// Check if the execution has timed out
