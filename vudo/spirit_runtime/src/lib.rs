@@ -40,7 +40,7 @@ pub mod signature;
 pub mod version;
 
 pub use dependency::{Dependency, DependencyResolver};
-pub use manifest::{Capability, Manifest, ManifestBuilder, ManifestError};
+pub use manifest::{Capability, Manifest, ManifestBuilder, ManifestError, Resources};
 pub use pricing::{CreditCost, PricingModel};
 pub use registry::{LocalRegistry, QueryBuilder, Registry, RegistryError};
 pub use signature::{KeyPair, Signature, SignatureError, SigningKey, VerifyingKey};

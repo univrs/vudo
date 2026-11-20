@@ -35,6 +35,23 @@ use std::fmt;
 use std::path::Path;
 use std::str::FromStr;
 
+/// Resource requirements declared by a Spirit (`[resources]` in manifest.toml).
+///
+/// Every field is optional; hosts fall back to their defaults
+/// (`vudo run`: 64 MiB memory, 1,000,000 fuel).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Resources {
+    /// Maximum linear memory in bytes
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_bytes: Option<u64>,
+    /// Fuel budget per invocation
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fuel: Option<u64>,
+    /// Advisory CPU share (0.0–1.0) for schedulers
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cpu_hint: Option<f64>,
+}
+
 /// Spirit manifest - metadata for a Spirit package
 ///
 /// A manifest contains:
@@ -75,6 +92,11 @@ pub struct Manifest {
     #[serde(default)]
     pub pricing: PricingModel,
 
+    /// Resource requirements (`[resources]`). Optional: manifests without it
+    /// parse unchanged and hosts apply their defaults.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resources: Option<Resources>,
+
     /// Ed25519 signature over manifest content (hex-encoded)
     pub signature: Option<String>,
 }
@@ -92,6 +114,7 @@ impl Manifest {
             capabilities: Vec::new(),
             dependencies: HashMap::new(),
             pricing: PricingModel::default(),
+            resources: None,
             signature: None,
         }
     }
@@ -338,6 +361,18 @@ impl Manifest {
 
         for cap in &self.capabilities {
             hasher.update(format!("{:?}", cap).as_bytes());
+        }
+
+        // Resources are signed when declared, so a host cannot inflate a
+        // Spirit's limits. Absent resources leave the hash unchanged.
+        if let Some(ref r) = self.resources {
+            hasher.update(
+                format!(
+                    "resources:{:?}:{:?}:{:?}",
+                    r.memory_bytes, r.fuel, r.cpu_hint
+                )
+                .as_bytes(),
+            );
         }
 
         hasher.finalize().to_vec()
