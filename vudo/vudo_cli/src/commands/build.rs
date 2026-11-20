@@ -71,22 +71,30 @@ pub async fn execute(args: BuildArgs, _config: &VudoConfig) -> Result<()> {
         println!("  - {:?}", file.strip_prefix(&project_path).unwrap_or(file));
     }
 
-    // For now, we'll create a placeholder WASM output
-    // In the real implementation, this would invoke the DOL compiler
+    // The entry point is src/main.dol (the Spirit project convention).
+    let entry = src_path.join("main.dol");
+    if !entry.exists() {
+        anyhow::bail!("Spirit entry point not found at {:?}", entry);
+    }
+
+    let source = fs::read_to_string(&entry)
+        .with_context(|| format!("Failed to read DOL source {:?}", entry))?;
+
+    let (ast, wasm_module) =
+        compile_dol(&source).with_context(|| format!("DOL compilation failed for {:?}", entry))?;
+
     let output_path = args
         .output
         .unwrap_or_else(|| project_path.join(format!("{}.spirit", manifest.name)));
 
-    // Create a minimal valid WASM module as placeholder
-    let wasm_module = create_placeholder_wasm(&manifest);
-
-    fs::write(&output_path, wasm_module)
+    fs::write(&output_path, &wasm_module)
         .with_context(|| format!("Failed to write output to {:?}", output_path))?;
 
     println!(
-        "\n{} Built Spirit package: {:?}",
+        "\n{} Built Spirit package: {:?} ({} bytes)",
         "✓".green().bold(),
-        output_path
+        output_path,
+        wasm_module.len()
     );
 
     // If emit flag is set, show intermediate representation
@@ -97,15 +105,26 @@ pub async fn execute(args: BuildArgs, _config: &VudoConfig) -> Result<()> {
             emit_type
         );
         match emit_type.as_str() {
-            "ast" => println!("  AST output would be shown here"),
-            "hir" => println!("  HIR output would be shown here"),
-            "mlir" => println!("  MLIR output would be shown here"),
-            "wasm" => println!("  WASM disassembly would be shown here"),
-            _ => println!("  Unknown emit type: {}", emit_type),
+            "ast" => println!("{:#?}", ast),
+            "wasm" => println!("  {} bytes of WASM bytecode", wasm_module.len()),
+            other => anyhow::bail!("--emit {} is not supported (supported: ast, wasm)", other),
         }
     }
 
     Ok(())
+}
+
+/// Parse DOL source and compile it to WASM with the real DOL compiler.
+///
+/// Mirrors `metadol::compile_source` from univrs/dol main (dol#31). The
+/// published 0.8.1 `compile_source` still emits a placeholder module, so the
+/// parser and `WasmCompiler` are called directly.
+fn compile_dol(source: &str) -> Result<(metadol::DolFile, Vec<u8>)> {
+    let ast = metadol::parse_dol_file(source).map_err(|e| anyhow::anyhow!("parse error: {}", e))?;
+    let wasm = metadol::WasmCompiler::new()
+        .compile_file(&ast)
+        .map_err(|e| anyhow::anyhow!("WASM codegen error: {}", e))?;
+    Ok((ast, wasm))
 }
 
 fn find_dol_files(dir: &PathBuf) -> Result<Vec<PathBuf>> {
@@ -127,45 +146,4 @@ fn find_dol_files(dir: &PathBuf) -> Result<Vec<PathBuf>> {
     }
 
     Ok(dol_files)
-}
-
-fn create_placeholder_wasm(_manifest: &spirit_runtime::Manifest) -> Vec<u8> {
-    // Create a minimal valid WASM module
-    // Magic number: \0asm
-    let mut wasm = vec![0x00, 0x61, 0x73, 0x6D];
-    // Version: 1
-    wasm.extend_from_slice(&[0x01, 0x00, 0x00, 0x00]);
-
-    // Type section (1 function type: () -> ())
-    wasm.push(0x01); // Section ID: Type
-    wasm.push(0x04); // Section size
-    wasm.push(0x01); // 1 type
-    wasm.push(0x60); // func type
-    wasm.push(0x00); // 0 params
-    wasm.push(0x00); // 0 results
-
-    // Function section (1 function)
-    wasm.push(0x03); // Section ID: Function
-    wasm.push(0x02); // Section size
-    wasm.push(0x01); // 1 function
-    wasm.push(0x00); // Type index 0
-
-    // Export section (export the function as "main")
-    wasm.push(0x07); // Section ID: Export
-    wasm.push(0x08); // Section size
-    wasm.push(0x01); // 1 export
-    wasm.push(0x04); // Name length
-    wasm.extend_from_slice(b"main"); // Name
-    wasm.push(0x00); // Export kind: function
-    wasm.push(0x00); // Function index 0
-
-    // Code section (empty function body)
-    wasm.push(0x0A); // Section ID: Code
-    wasm.push(0x04); // Section size
-    wasm.push(0x01); // 1 function body
-    wasm.push(0x02); // Body size
-    wasm.push(0x00); // 0 locals
-    wasm.push(0x0B); // end
-
-    wasm
 }

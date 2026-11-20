@@ -22,10 +22,6 @@ pub struct PackArgs {
     #[arg(long)]
     pub exclude: Option<Vec<String>>,
 
-    /// Compression algorithm (zstd, gzip, none)
-    #[arg(long, default_value = "zstd")]
-    pub compress: String,
-
     /// Output file path
     #[arg(short, long)]
     pub output: Option<PathBuf>,
@@ -49,7 +45,6 @@ pub async fn execute(args: PackArgs, _config: &VudoConfig) -> Result<()> {
 
     println!("  {} {}", "Spirit:".cyan(), spirit_name);
     println!("  {} {}", "Version:".cyan(), version);
-    println!("  {} {}", "Compression:".cyan(), args.compress);
 
     // Determine output path
     let output_path = args
@@ -93,21 +88,9 @@ pub async fn execute(args: PackArgs, _config: &VudoConfig) -> Result<()> {
         }
     }
 
-    // Apply compression if requested
-    let final_data = match args.compress.as_str() {
-        "zstd" => {
-            println!("  {} Applying zstd compression", "Compressing:".cyan());
-            // In real implementation, use zstd crate
-            package_data // Placeholder
-        }
-        "gzip" => {
-            println!("  {} Applying gzip compression", "Compressing:".cyan());
-            // In real implementation, use flate2 crate
-            package_data // Placeholder
-        }
-        "none" => package_data,
-        _ => anyhow::bail!("Unknown compression algorithm: {}", args.compress),
-    };
+    // Packages are stored uncompressed: no consumer (info, sign, verify) can
+    // decompress yet. The distribution format is defined in plan H2.
+    let final_data = package_data;
 
     // Write package
     fs::write(&output_path, final_data)

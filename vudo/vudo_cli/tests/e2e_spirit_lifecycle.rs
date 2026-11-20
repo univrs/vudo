@@ -101,19 +101,13 @@ per_fuel_cost = 1
 
     fs::write(project_path.join("manifest.toml"), manifest).expect("Failed to write manifest.toml");
 
-    // Create main.dol
-    let main_dol = r#"// VUDO Spirit - Basic Template
-// The system that knows what it is, becomes what it knows.
-
-fun greet(name: String) -> String {
-    "Hello, " + name + "!"
+    // Create main.dol (WASM-compilable: plain functions, no host calls)
+    let main_dol = r#"fun add(a: i64, b: i64) -> i64 {
+    return a + b
 }
 
-fun main() -> Result<Unit, String> {
-    let greeting = greet("World")
-    println(greeting)
-
-    Ok(())
+fun main() -> i64 {
+    return add(40, 2)
 }
 "#;
     fs::write(project_path.join("src/main.dol"), main_dol).expect("Failed to write main.dol");
@@ -488,33 +482,6 @@ fn test_pack_with_custom_output() {
         "Custom output file should exist at {:?}",
         custom_output
     );
-}
-
-#[test]
-fn test_pack_with_compression_options() {
-    let temp_dir = TempDir::new().expect("Failed to create temp directory");
-    let temp_path = temp_dir.path();
-
-    // Create project with compatible manifest
-    let project_path = create_compatible_spirit_project(temp_path, "pack-compress-test");
-
-    let output = run_vudo(&["build"], &project_path);
-    assert_success(&output, "vudo build");
-
-    // Pack with no compression
-    let no_compress_output = temp_path.join("no-compress.spirit");
-    let output = run_vudo(
-        &[
-            "pack",
-            "--compress",
-            "none",
-            "--output",
-            no_compress_output.to_str().unwrap(),
-        ],
-        &project_path,
-    );
-    assert_success(&output, "vudo pack --compress none");
-    assert!(no_compress_output.exists());
 }
 
 #[test]
@@ -1052,4 +1019,179 @@ fn test_new_then_build_integration() {
     // This will fail until manifest formats are aligned
     let output = run_vudo(&["build"], &project_path);
     assert_success(&output, "vudo build after vudo new");
+}
+
+// =============================================================================
+// H0: toolchain truth — real compile, real execution, honest failures
+// =============================================================================
+
+/// The exact bytes of the placeholder module `vudo build` used to write.
+const LEGACY_PLACEHOLDER_WASM: &[u8] = &[
+    0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x01, 0x04, 0x01, 0x60, 0x00, 0x00, 0x03, 0x02,
+    0x01, 0x00, 0x07, 0x08, 0x01, 0x04, b'm', b'a', b'i', b'n', 0x00, 0x00, 0x0A, 0x04, 0x01, 0x02,
+    0x00, 0x0B,
+];
+
+fn write_main_dol(project_path: &Path, source: &str) {
+    fs::write(project_path.join("src/main.dol"), source).expect("Failed to write main.dol");
+}
+
+#[test]
+fn test_h0_build_emits_compiled_wasm_not_placeholder() {
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let project_path = create_compatible_spirit_project(temp_dir.path(), "h0-build");
+
+    let output = run_vudo(&["build"], &project_path);
+    assert_success(&output, "vudo build");
+
+    let wasm = fs::read(project_path.join("h0-build.spirit")).expect("built spirit");
+    assert_eq!(&wasm[0..4], b"\0asm", "must be a WASM module");
+    assert_ne!(
+        wasm.as_slice(),
+        LEGACY_PLACEHOLDER_WASM,
+        "must not be the placeholder"
+    );
+    // Export names appear verbatim in the export section.
+    for export in ["add", "main"] {
+        assert!(
+            wasm.windows(export.len()).any(|w| w == export.as_bytes()),
+            "compiled module should export `{}`",
+            export
+        );
+    }
+}
+
+#[test]
+fn test_h0_build_fails_on_invalid_dol() {
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let project_path = create_compatible_spirit_project(temp_dir.path(), "h0-bad");
+    write_main_dol(&project_path, "fun main( -> i64 { return }\n");
+
+    let output = run_vudo(&["build"], &project_path);
+    assert_failure(&output, "vudo build on invalid DOL");
+    assert!(
+        !project_path.join("h0-bad.spirit").exists(),
+        "no output may be written when compilation fails"
+    );
+}
+
+#[test]
+fn test_h0_run_executes_entry_and_prints_result() {
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let project_path = create_compatible_spirit_project(temp_dir.path(), "h0-run");
+
+    assert_success(&run_vudo(&["build"], &project_path), "vudo build");
+    let output = run_vudo(&["run"], &project_path);
+    assert_success(&output, "vudo run");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("42"),
+        "run should print main()'s result 42: {}",
+        stdout
+    );
+}
+
+#[test]
+fn test_h0_run_custom_entry() {
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let project_path = create_compatible_spirit_project(temp_dir.path(), "h0-entry");
+
+    assert_success(&run_vudo(&["build"], &project_path), "vudo build");
+    let output = run_vudo(&["run", "--entry", "add", "--", "2", "3"], &project_path);
+    assert_success(&output, "vudo run --entry add -- 2 3");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains('5'), "add(2, 3) should print 5: {}", stdout);
+}
+
+#[test]
+fn test_h0_run_fails_on_trap() {
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let project_path = create_compatible_spirit_project(temp_dir.path(), "h0-trap");
+    write_main_dol(
+        &project_path,
+        "fun divide(a: i64, b: i64) -> i64 {\n    return a / b\n}\n\nfun main() -> i64 {\n    return divide(1, 0)\n}\n",
+    );
+
+    assert_success(&run_vudo(&["build"], &project_path), "vudo build");
+    let output = run_vudo(&["run"], &project_path);
+    assert_failure(&output, "vudo run on a trapping entry function");
+}
+
+#[test]
+fn test_h0_run_fails_on_fuel_exhaustion() {
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let project_path = create_compatible_spirit_project(temp_dir.path(), "h0-fuel");
+    write_main_dol(
+        &project_path,
+        "fun main() -> i64 {\n    let i: i64 = 0\n    while i < 1000000000 {\n        i = i + 1\n    }\n    return i\n}\n",
+    );
+
+    assert_success(&run_vudo(&["build"], &project_path), "vudo build");
+    let output = run_vudo(&["run", "--fuel", "10000"], &project_path);
+    assert_failure(&output, "vudo run with exhausted fuel");
+}
+
+#[test]
+fn test_h0_run_rejects_non_wasm() {
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let fake = temp_dir.path().join("fake.spirit");
+    fs::write(&fake, b"Summoned Spirit placeholder").unwrap();
+
+    let output = run_vudo(&["run", fake.to_str().unwrap()], temp_dir.path());
+    assert_failure(&output, "vudo run on a non-WASM file");
+}
+
+#[test]
+fn test_h0_publish_never_reports_success() {
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let project_path = create_compatible_spirit_project(temp_dir.path(), "h0-publish");
+    assert_success(&run_vudo(&["build"], &project_path), "vudo build");
+    assert_success(&run_vudo(&["pack"], &project_path), "vudo pack");
+
+    let output = run_vudo(&["publish", "h0-publish-0.1.0.spirit"], &project_path);
+    assert_failure(&output, "vudo publish (network registry not implemented)");
+    let all = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(all.contains("H2"), "error should point to plan H2: {}", all);
+    assert!(
+        !all.contains("published successfully"),
+        "must not claim success: {}",
+        all
+    );
+}
+
+#[test]
+fn test_h0_summon_never_reports_success_or_writes_placeholder() {
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let out_dir = temp_dir.path().join("spirits");
+
+    let output = run_vudo(
+        &[
+            "summon",
+            "@someone/thing",
+            "--output",
+            out_dir.to_str().unwrap(),
+        ],
+        temp_dir.path(),
+    );
+    assert_failure(&output, "vudo summon (network registry not implemented)");
+    assert!(
+        !out_dir.join("thing.spirit").exists(),
+        "summon must not write a placeholder package"
+    );
+}
+
+#[test]
+fn test_h0_pack_has_no_fake_compression() {
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let project_path = create_compatible_spirit_project(temp_dir.path(), "h0-pack");
+    assert_success(&run_vudo(&["build"], &project_path), "vudo build");
+
+    let output = run_vudo(&["pack", "--compress", "zstd"], &project_path);
+    assert_failure(&output, "vudo pack --compress (flag removed)");
 }
