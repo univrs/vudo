@@ -9,6 +9,7 @@ name = "vudo"
 path = "src/main.rs"
 
 [dependencies]
+wasmtime = { workspace = true }
 vudo_vm = { path = "../vudo_vm" }
 spirit_runtime = { path = "../spirit_runtime" }
 vudo_repl = { path = "../vudo_repl" }
@@ -28,6 +29,9 @@ sha2 = { workspace = true }
 hex = { workspace = true }
 rand = { workspace = true }
 dirs = { workspace = true }
+# DOL compiler (crate `dol`, lib `metadol`): WASM codegen only, no wasmtime/MLIR
+dol = { version = "0.8.1", default-features = false, features = ["wasm-compile"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+wat = "1"

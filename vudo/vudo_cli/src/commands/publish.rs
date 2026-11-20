@@ -96,29 +96,11 @@ pub async fn execute(args: PublishArgs, config: &VudoConfig) -> Result<()> {
 
     println!("  {} {}", "Registry:".cyan(), registry);
 
-    // In a real implementation, this would:
-    // 1. Authenticate with the registry
-    // 2. Upload the package
-    // 3. Set metadata (visibility, pricing)
-    // 4. Return the package URL
-
-    println!(
-        "\n{} Publishing to Imaginarium...",
-        "Uploading".green().bold()
-    );
-
-    // Simulate upload
-    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-
-    println!("\n{} Spirit published successfully!", "✓".green().bold());
-    println!(
-        "\n{} https://imaginarium.vudo.univrs.io/@yourname/your-spirit",
-        "URL:".cyan().bold()
-    );
-    println!("\nOthers can now summon your Spirit with:");
-    println!("  vudo summon @yourname/your-spirit");
-
-    Ok(())
+    // There is no network registry yet. Publishing over the mycelial network
+    // (content-addressed, announced on gossipsub) is Spirit Hosting Plan H2.
+    // Never report success without doing the work.
+    let _ = (registry, package_data);
+    anyhow::bail!("not implemented: network registry arrives in Spirit Hosting Plan H2")
 }
 
 fn find_spirit_package(dir: &str) -> Result<PathBuf> {

@@ -3,7 +3,6 @@
 use anyhow::Result;
 use clap::Args;
 use colored::*;
-use std::fs;
 use std::path::PathBuf;
 
 use crate::config::VudoConfig;
@@ -54,43 +53,11 @@ pub async fn execute(args: SummonArgs, config: &VudoConfig) -> Result<()> {
 
     println!("  {} {}", "Registry:".cyan(), registry);
 
-    // Determine output path
-    let spirit_dir = args.output.unwrap_or_else(|| {
-        let vudo_dir = config.vudo_dir();
-        vudo_dir.join("spirits")
-    });
-
-    fs::create_dir_all(&spirit_dir)?;
-
-    let spirit_path = spirit_dir.join(format!("{}.spirit", name));
-
-    println!("\n{} from Imaginarium...", "Downloading".green().bold());
-
-    // In a real implementation, this would:
-    // 1. Query the registry for the Spirit
-    // 2. Verify checksums and signatures
-    // 3. Download the package
-    // 4. Cache locally
-
-    // Simulate download
-    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-
-    // Create a placeholder Spirit file
-    let placeholder = b"Summoned Spirit placeholder";
-    fs::write(&spirit_path, placeholder)?;
-
-    println!("{} Downloaded to: {:?}", "✓".green().bold(), spirit_path);
-
-    if args.run {
-        println!("\n{} Spirit...", "Running".green().bold());
-        // In real implementation, would execute the Spirit
-        println!("{} Spirit executed successfully", "✓".green().bold());
-    } else {
-        println!("\nRun with:");
-        println!("  vudo run {:?}", spirit_path);
-    }
-
-    Ok(())
+    // There is no network registry yet. Fetching Spirits by content hash over
+    // libp2p is Spirit Hosting Plan H2. Never write a placeholder package or
+    // report success without doing the work.
+    let _ = (args.output, args.run);
+    anyhow::bail!("not implemented: network registry arrives in Spirit Hosting Plan H2")
 }
 
 fn parse_spirit_name(name: &str) -> Result<(Option<String>, String, Option<String>)> {
