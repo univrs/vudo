@@ -1,5 +1,11 @@
 # VUDO OS: Strategic Assessment & Ontology-Driven Roadmap
 
+> **Historical snapshot (2025-12-24) — superseded.** Several claims below are no longer accurate:
+> DOL is not production-ready (it is `dol` 0.8.2, beta; type errors are not enforced);
+> DOL compiles directly AST → WASM, with no MLIR stage; the real VUDO VM host ABI is the 15 functions
+> in `vudo/vudo_vm/src/linker.rs`, not the list in `vudo-vm/traits/execution.dol`; and the L6 layer
+> called "VUDO OS" here is now named DOLOS.
+
 > **Date:** December 24, 2025  
 > **Purpose:** Assessment of current state, DOL-driven evolution path, and VUDO OS development strategy
 

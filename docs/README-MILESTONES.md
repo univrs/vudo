@@ -11,7 +11,7 @@ Phase 1  ████████████████████  Parser + 
 Phase 2a ████████████████████  HIR v0.4.0         ✅ 466 tests
 Phase 2b ████████████████████  VUDO VM            ✅ 402 tests
 Phase 2c ████████████████████  Spirit Runtime     ✅ 50 tests
-Phase 3  ████████████████████  MLIR + WASM        ✅ 50 tests
+Phase 3  ████████████████████  DOL → WASM         ✅ dol 0.8.2 (direct backend, no MLIR)
 Phase 4a ████████████████████  Hyphal Network     ✅ 38 tests
 Phase 4b ████████░░░░░░░░░░░░  ENR Economics      🔄 Active
 ```

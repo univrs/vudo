@@ -67,7 +67,7 @@ vudo uninstall <name>   # Remove Spirit
 # Tools
 vudo fmt                # Format manifest
 vudo doc                # Generate docs
-vudo dol                # DOL REPL (stub)
+vudo dol                # DOL REPL (stub, not connected to the DOL compiler)
 ```
 
 ---
@@ -178,22 +178,24 @@ cargo fmt --all -- --check
 - Local registry with dependency resolution
 - Full CLI with 15+ commands
 
-**DOL Integration: v0.4.0**
+**DOL Integration: `dol` 0.8.2** (crates.io, `wasm-compile` feature)
 
 | VUDO Command | DOL Component | Status |
 |--------------|---------------|--------|
-| `vudo check` | HIR Validation | ✅ Ready |
-| `vudo fmt` | DOL Formatter | ✅ Ready |
-| `vudo dol` | DOL REPL | ✅ Ready |
-| `vudo build` | Rust Codegen | ✅ Ready |
-| `vudo build --wasm` | MLIR → WASM | 🚧 v0.5.0 |
+| `vudo build` | Parses `src/main.dol` and compiles it to WASM with the DOL direct WASM backend (no MLIR) | ✅ |
+| `vudo run` | Runs the built Spirit; `sex fun` host calls link against the 15 `vudo.host_*` functions in `vudo_vm/src/linker.rs` | ✅ |
+| `vudo check` | Only checks that `.dol` files are readable and non-empty; no DOL parsing yet | 🚧 Stub |
+| `vudo fmt` | Whitespace/line-ending normalization only; no DOL-aware formatting yet | 🚧 Stub |
+| `vudo dol` | REPL scaffold; not connected to the DOL compiler | 🚧 Stub |
+
+CI compiles a DOL `sex fun` Spirit that calls `host_log`, runs it in the VM and checks its output
+(`cargo test -p vudo_cli --test e2e_spirit_lifecycle test_h0`).
 
 **Next: Phase 3 - Compilation Pipeline**
 
-- DOL v0.5.0: MLIR Dialect definition
-- HIR → MLIR lowering
-- MLIR → WASM emission
-- Full Spirit compilation from `.dol` sources
+- DOL type enforcement (type errors are not yet rejected by the compiler)
+- Wider language coverage in the DOL WASM backend (e.g. lambdas, tuples, strings in gene layouts)
+- Wire `vudo check` / `vudo fmt` / `vudo dol` to the real DOL parser
 
 **Future: Phase 4 - Hyphal Network**
 
