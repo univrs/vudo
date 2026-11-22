@@ -355,6 +355,9 @@ pub struct Sandbox {
     metrics: SandboxMetrics,
 }
 
+/// Size of a WebAssembly linear-memory page.
+const WASM_PAGE_SIZE: u64 = 65_536;
+
 impl Sandbox {
     /// Creates a new sandbox with the given WASM module, owner, resource limits,
     /// and backend implementations.
@@ -513,7 +516,9 @@ impl Sandbox {
 
         // Reject modules whose initial linear memory already exceeds the limit,
         // with a clear error instead of an opaque instantiation failure.
-        if let Some(initial) = module.resources_required().max_initial_memory_size {
+        // wasmtime reports this in Wasm pages (64 KiB), not bytes.
+        if let Some(pages) = module.resources_required().max_initial_memory_size {
+            let initial = pages.saturating_mul(WASM_PAGE_SIZE);
             if initial > self.limits.memory_bytes {
                 self.state = SandboxState::Failed;
                 return Err(SandboxError::InvalidModule(format!(
