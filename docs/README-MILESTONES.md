@@ -16,7 +16,7 @@ Phase 4a ████████████████████  Hyphal Ne
 Phase 4b ████████░░░░░░░░░░░░  ENR Economics      🔄 Active
 ```
 
-**DOL Tests:** 2,512 (dol 0.8.2) | **DOL Specs:** 3,094 lines
+**DOL Tests:** 2,512 (dol 0.8.2) | **DOL Specs:** 3,089 lines
 
 [View Full Milestones →](https://github.com/univrs/univrs-dol/wiki/Milestones)
 
@@ -33,7 +33,7 @@ Phase 4b ████████░░░░░░░░░░░░  ENR Econo
 ```markdown
 ![Phase](https://img.shields.io/badge/Phase-4b%20ENR-00ff88?style=flat-square)
 ![DOL Tests](https://img.shields.io/badge/DOL%20Tests-2512-brightgreen?style=flat-square)
-![DOL](https://img.shields.io/badge/DOL-3094%20lines-blue?style=flat-square)
+![DOL](https://img.shields.io/badge/DOL-3089%20lines-blue?style=flat-square)
 ```
 
 ### Shields.io Dynamic (if you have a JSON endpoint)

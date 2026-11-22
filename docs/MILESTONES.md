@@ -8,7 +8,7 @@
 |--------|-------|
 | **Phases Complete** | 6/7 |
 | **DOL Tests** | 2,512 (`dol` 0.8.2) |
-| **DOL Specifications** | 3,094 lines |
+| **DOL Specifications** | 3,089 lines |
 | **Status** | Phase 4b ENR Active 🔄 |
 
 ---

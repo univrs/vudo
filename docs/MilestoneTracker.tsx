@@ -101,12 +101,12 @@ const repositories: Repository[] = [
 ];
 
 const enrSubsystems: ENRSubsystem[] = [
-  { name: 'Core', status: 'active', dolLines: 529, formula: 'Credits, NodeId, CreditTransfer' },
-  { name: 'Entropy', status: 'pending', dolLines: 405, formula: 'S = wₙ·Sₙ + wᶜ·Sᶜ + wˢ·Sˢ + wᵗ·Sᵗ' },
-  { name: 'Nexus', status: 'pending', dolLines: 525, formula: 'Election, Gradient Aggregation' },
-  { name: 'Revival', status: 'pending', dolLines: 521, formula: '40% / 25% / 20% / 15%' },
+  { name: 'Core', status: 'active', dolLines: 528, formula: 'Credits, NodeId, CreditTransfer' },
+  { name: 'Entropy', status: 'pending', dolLines: 404, formula: 'S = wₙ·Sₙ + wᶜ·Sᶜ + wˢ·Sˢ + wᵗ·Sᵗ' },
+  { name: 'Nexus', status: 'pending', dolLines: 524, formula: 'Election, Gradient Aggregation' },
+  { name: 'Revival', status: 'pending', dolLines: 520, formula: '40% / 25% / 20% / 15%' },
   { name: 'Septal', status: 'pending', dolLines: 463, formula: 'Circuit Breaker, Woronin' },
-  { name: 'Pricing', status: 'pending', dolLines: 651, formula: 'Fixed / Dynamic / Auction' },
+  { name: 'Pricing', status: 'pending', dolLines: 650, formula: 'Fixed / Dynamic / Auction' },
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════
