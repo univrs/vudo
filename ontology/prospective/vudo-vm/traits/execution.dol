@@ -1,6 +1,12 @@
 // VUDO VM Execution Trait
 // Path: docs/ontology/prospective/vudo-vm/traits/execution.dol
 // Version: 0.1.0
+//
+// HISTORICAL DESIGN SKETCH — not the real host ABI.
+// The VUDO VM host ABI is the 15 functions in the "vudo" import module registered by
+// vudo/vudo_vm/src/linker.rs (host_log, host_time_now, host_random_bytes, host_storage_*,
+// host_credit_*, host_network_*). host_env_get, host_net_request and host_sandbox_call below
+// do not exist there, and the signatures differ.
 
 module vudo.vm.execution @ 0.1.0
 

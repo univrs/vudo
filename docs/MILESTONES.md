@@ -67,22 +67,18 @@ Autonomous agent system with manifest-driven capabilities.
 
 ---
 
-### ✅ Phase 3: MLIR + WASM Pipeline
-**Tests:** 50 | **Status:** Complete
+### ✅ Phase 3: DOL → WASM Pipeline
+**Status:** Shipped (beta) in `dol` 0.8.2
 
-Full compilation pipeline from DOL source to executable WASM.
+DOL source compiles directly from the AST to WASM (`wasm-encoder`). There is no MLIR stage:
+the MLIR code in the dol repo is experimental and not built in CI.
 
 **Deliverables:**
-- HIR → MLIR lowering
-- MLIR → WASM backend
-- `add.wasm` validated ✓
+- Direct AST → WASM backend in `dol`
+- VUDO host ABI: 15 `vudo.host_*` imports, matching `vudo_vm/src/linker.rs`
+- `vudo build` / `vudo run` use crates.io `dol = "0.8.2"`; CI runs a DOL-compiled Spirit end to end
 
-**Validation:**
-```
-Input:  (+ 2 3)
-Output: add.wasm
-Result: 5 ✓
-```
+**Not yet:** type enforcement; lambdas, tuples, `string`/`u64` fields in gene layouts.
 
 ---
 
@@ -141,7 +137,7 @@ Revival Distribution:
 
 | Repository | Purpose | Tests | Status |
 |------------|---------|-------|--------|
-| [univrs-dol](https://github.com/univrs/univrs-dol) | DOL Compiler | 454 | ✅ Stable |
+| [dol](https://github.com/univrs/dol) | DOL Compiler (v0.8.2) | 2,512 (`cli,serde,wasm`, including doctests) | ✅ Stable |
 | [univrs-vudo](https://github.com/univrs/univrs-vudo) | VUDO VM | 402 | ✅ Stable |
 | [univrs-enr](https://github.com/univrs/univrs-enr) | ENR Economics | — | 🔄 Active |
 | [univrs-network](https://github.com/univrs/univrs-network) | P2P Layer | — | ⏳ Pending |
@@ -162,7 +158,7 @@ Revival Distribution:
 ├─────────────────────────────────────────────┤
 │         Network (P2P, Chitchat)             │
 ├─────────────────────────────────────────────┤
-│     Compiler (DOL → HIR → MLIR → WASM)      │  ◀── Phase 3 ✅
+│        Compiler (DOL → AST → WASM)          │  ◀── Phase 3 ✅
 ├─────────────────────────────────────────────┤
 │      Runtime (VUDO VM, Sandbox, Fuel)       │  ◀── Phase 2 ✅
 └─────────────────────────────────────────────┘
