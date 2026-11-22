@@ -137,7 +137,7 @@ Revival Distribution:
 
 | Repository | Purpose | Tests | Status |
 |------------|---------|-------|--------|
-| [dol](https://github.com/univrs/dol) | DOL Compiler (v0.8.2) | 2,183 (default features; 2,405 with `cli,serde,wasm`) | ✅ Stable |
+| [dol](https://github.com/univrs/dol) | DOL Compiler (v0.8.2) | 2,512 (`cli,serde,wasm`, including doctests) | ✅ Stable |
 | [univrs-vudo](https://github.com/univrs/univrs-vudo) | VUDO VM | 402 | ✅ Stable |
 | [univrs-enr](https://github.com/univrs/univrs-enr) | ENR Economics | — | 🔄 Active |
 | [univrs-network](https://github.com/univrs/univrs-network) | P2P Layer | — | ⏳ Pending |

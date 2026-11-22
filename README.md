@@ -218,7 +218,7 @@ CI compiles a DOL `sex fun` Spirit that calls `host_log`, runs it in the VM and 
 > [!IMPORTANT]
 > **This is an experimental system. _We break things frequently_.**
 
-- Not accepting contributions yet (but we plan to!)
+- Not accepting contributions
 - No stability guarantees
 - Pin commits if you need consistency
 - This is a learning resource, not production software
