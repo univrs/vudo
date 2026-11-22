@@ -7,7 +7,7 @@
 | Metric | Value |
 |--------|-------|
 | **Phases Complete** | 6/7 |
-| **Total Tests** | 1,156+ |
+| **DOL Tests** | 2,512 (`dol` 0.8.2) |
 | **DOL Specifications** | 3,094 lines |
 | **Status** | Phase 4b ENR Active 🔄 |
 
@@ -138,9 +138,9 @@ Revival Distribution:
 | Repository | Purpose | Tests | Status |
 |------------|---------|-------|--------|
 | [dol](https://github.com/univrs/dol) | DOL Compiler (v0.8.2) | 2,512 (`cli,serde,wasm`, including doctests) | ✅ Stable |
-| [univrs-vudo](https://github.com/univrs/univrs-vudo) | VUDO VM | 402 | ✅ Stable |
-| [univrs-enr](https://github.com/univrs/univrs-enr) | ENR Economics | — | 🔄 Active |
-| [univrs-network](https://github.com/univrs/univrs-network) | P2P Layer | — | ⏳ Pending |
+| [univrs-vudo](https://github.com/univrs/vudo) | VUDO VM | 402 | ✅ Stable |
+| [univrs-enr](https://github.com/univrs/enr) | ENR Economics | — | 🔄 Active |
+| [univrs-network](https://github.com/univrs/network) | P2P Layer | — | ⏳ Pending |
 
 ---
 

@@ -1,4 +1,8 @@
-//! Small-World Network Metrics - Generated from DOL
+//! Small-World Network Metrics - hand-written Rust (NOT generated from DOL)
+//!
+//! Hand-written reference implementation of `../dol/small_world.dol`. This file is not
+//! compiled: `lib.rs` (the dol-codegen output) does not declare it as a module.
+//!
 //! Watts-Strogatz metrics for network analysis
 
 use wasm_bindgen::prelude::*;

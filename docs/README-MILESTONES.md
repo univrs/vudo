@@ -16,7 +16,7 @@ Phase 4a ████████████████████  Hyphal Ne
 Phase 4b ████████░░░░░░░░░░░░  ENR Economics      🔄 Active
 ```
 
-**Total Tests:** 1,156+ | **DOL Specs:** 3,094 lines
+**DOL Tests:** 2,512 (dol 0.8.2) | **DOL Specs:** 3,094 lines
 
 [View Full Milestones →](https://github.com/univrs/univrs-dol/wiki/Milestones)
 
@@ -32,7 +32,7 @@ Phase 4b ████████░░░░░░░░░░░░  ENR Econo
 ### Markdown Badge
 ```markdown
 ![Phase](https://img.shields.io/badge/Phase-4b%20ENR-00ff88?style=flat-square)
-![Tests](https://img.shields.io/badge/Tests-1156+-brightgreen?style=flat-square)
+![DOL Tests](https://img.shields.io/badge/DOL%20Tests-2512-brightgreen?style=flat-square)
 ![DOL](https://img.shields.io/badge/DOL-3094%20lines-blue?style=flat-square)
 ```
 
@@ -58,10 +58,10 @@ Phase 4b ████████░░░░░░░░░░░░  ENR Econo
 
 | Repo | Status |
 |------|--------|
-| [univrs-dol](https://github.com/univrs/univrs-dol) | ![](https://img.shields.io/badge/454-tests-00ff88) |
-| [univrs-vudo](https://github.com/univrs/univrs-vudo) | ![](https://img.shields.io/badge/402-tests-00ff88) |
-| [univrs-enr](https://github.com/univrs/univrs-enr) | ![](https://img.shields.io/badge/active-yellow) |
-| [univrs-network](https://github.com/univrs/univrs-network) | ![](https://img.shields.io/badge/pending-gray) |
+| [dol](https://github.com/univrs/dol) | ![](https://img.shields.io/badge/2512-tests-00ff88) |
+| [univrs-vudo](https://github.com/univrs/vudo) | ![](https://img.shields.io/badge/402-tests-00ff88) |
+| [univrs-enr](https://github.com/univrs/enr) | ![](https://img.shields.io/badge/active-yellow) |
+| [univrs-network](https://github.com/univrs/network) | ![](https://img.shields.io/badge/pending-gray) |
 ```
 
 ---

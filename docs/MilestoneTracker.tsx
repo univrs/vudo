@@ -2,7 +2,7 @@
 // TypeScript component for Univrs ecosystem milestone visualization
 // Add to: ~/repos/univrs.io/src/components/ or ~/repos/vudo.univrs.io/src/components/
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -12,7 +12,7 @@ interface Phase {
   id: string;
   name: string;
   status: 'complete' | 'active' | 'pending';
-  tests: number;
+  tests?: number;
   description: string;
   deliverables: string[];
 }
@@ -70,11 +70,10 @@ const phases: Phase[] = [
   },
   {
     id: 'phase3',
-    name: 'Phase 3: MLIR + WASM Pipeline',
+    name: 'Phase 3: DOL → WASM Pipeline',
     status: 'complete',
-    tests: 50,
-    description: 'DOL → HIR → MLIR → WASM compilation',
-    deliverables: ['MLIR lowering', 'WASM backend', 'add.wasm validated'],
+    description: 'DOL → AST → WASM direct backend (no MLIR); DOL 0.8.2 Spirits run in the VUDO VM',
+    deliverables: ['WASM backend', 'VUDO host ABI (15 functions)'],
   },
   {
     id: 'phase4a',
@@ -95,10 +94,10 @@ const phases: Phase[] = [
 ];
 
 const repositories: Repository[] = [
-  { name: 'univrs-dol', url: 'https://github.com/univrs/univrs-dol', status: 'stable', tests: 454 },
-  { name: 'univrs-enr', url: 'https://github.com/univrs/univrs-enr', status: 'active', tests: 0 },
-  { name: 'univrs-network', url: 'https://github.com/univrs/univrs-network', status: 'pending', tests: 0 },
-  { name: 'univrs-vudo', url: 'https://github.com/univrs/univrs-vudo', status: 'stable', tests: 402 },
+  { name: 'univrs-dol', url: 'https://github.com/univrs/dol', status: 'stable', tests: 2512 },
+  { name: 'univrs-enr', url: 'https://github.com/univrs/enr', status: 'active', tests: 0 },
+  { name: 'univrs-network', url: 'https://github.com/univrs/network', status: 'pending', tests: 0 },
+  { name: 'univrs-vudo', url: 'https://github.com/univrs/vudo', status: 'stable', tests: 402 },
 ];
 
 const enrSubsystems: ENRSubsystem[] = [
@@ -182,12 +181,6 @@ const StatusIcon = ({ status }: { status: 'complete' | 'active' | 'pending' | 's
 
 export const MilestoneTracker = () => {
   const [activeTab, setActiveTab] = useState<'phases' | 'repos' | 'enr'>('phases');
-  const [totalTests, setTotalTests] = useState(0);
-
-  useEffect(() => {
-    const total = phases.reduce((sum, p) => sum + p.tests, 0);
-    setTotalTests(total);
-  }, []);
 
   const completedPhases = phases.filter(p => p.status === 'complete').length;
   const totalDolLines = enrSubsystems.reduce((sum, s) => sum + s.dolLines, 0);
@@ -214,10 +207,6 @@ export const MilestoneTracker = () => {
         <div style={styles.stat}>
           <span style={styles.statValue}>{completedPhases}/{phases.length}</span>
           <span style={styles.statLabel}>Phases</span>
-        </div>
-        <div style={styles.stat}>
-          <span style={styles.statValue}>{totalTests.toLocaleString()}</span>
-          <span style={styles.statLabel}>Tests</span>
         </div>
         <div style={styles.stat}>
           <span style={styles.statValue}>{totalDolLines.toLocaleString()}</span>
@@ -252,7 +241,9 @@ export const MilestoneTracker = () => {
                 <div style={styles.phaseHeader}>
                   <StatusIcon status={phase.status} />
                   <span style={styles.phaseName}>{phase.name}</span>
-                  <span style={styles.phaseTests}>{phase.tests} tests</span>
+                  {phase.tests !== undefined && (
+                    <span style={styles.phaseTests}>{phase.tests} tests</span>
+                  )}
                 </div>
                 <p style={styles.phaseDesc}>{phase.description}</p>
                 <div style={styles.deliverables}>
