@@ -88,3 +88,27 @@ fn initial_memory_above_limit_is_rejected() {
         "error must say the memory limit was exceeded, got: {msg}"
     );
 }
+
+/// Load-time check (Spirit Hosting H1d): an oversized module is refused by
+/// `initialize()`, before anything is instantiated or invoked, so a host can
+/// tell a load failure apart from a run failure. (wasmtime reports the
+/// initial size in Wasm pages; comparing it to bytes made this check dead.)
+#[test]
+fn initial_memory_above_limit_is_rejected_at_initialize() {
+    let mut sb = Sandbox::new_with_defaults(&module(8), [7u8; 32], limits(4 * PAGE)).unwrap();
+    let err = sb
+        .initialize()
+        .expect_err("an 8-page module must not initialize under a 4-page limit");
+    assert!(matches!(err, SandboxError::InvalidModule(_)), "{err:?}");
+    assert!(
+        err.to_string().contains("exceeds sandbox memory limit"),
+        "{err}"
+    );
+    assert_eq!(sb.get_state(), vudo_vm::sandbox::SandboxState::Failed);
+}
+
+#[test]
+fn initial_memory_at_limit_initializes() {
+    let mut sb = sandbox(4, 4).expect("a 4-page module fits a 4-page limit");
+    assert_eq!(i32_result(&mut sb, "size", &[]), 4);
+}
