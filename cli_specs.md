@@ -87,9 +87,8 @@ vudo build
 
 # Power user
 vudo build --emit=ast          # Show AST
-vudo build --emit=hir          # Show HIR  
-vudo build --emit=mlir         # Show MLIR
 vudo build --emit=wasm         # Show WASM (default output)
+# (--emit=hir / --emit=mlir are not implemented; only ast and wasm are accepted)
 vudo build --target=wasm32     # 32-bit WASM
 vudo build --target=wasm64     # 64-bit WASM
 vudo build --target=native     # Native binary

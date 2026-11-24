@@ -1,4 +1,8 @@
-//! EROEI Calculator - Generated from DOL
+//! EROEI Calculator - hand-written Rust (NOT generated from DOL)
+//!
+//! Hand-written reference implementation of `../dol/eroei.dol`. This file is not
+//! compiled: `lib.rs` (the dol-codegen output) does not declare it as a module.
+//!
 //! Energy Return on Energy Invested calculations for thermodynamic economics
 
 use wasm_bindgen::prelude::*;

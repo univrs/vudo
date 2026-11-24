@@ -14,8 +14,8 @@ pub struct BuildArgs {
     #[arg(short, long)]
     pub path: Option<PathBuf>,
 
-    /// Emit intermediate representation (ast, hir, mlir, wasm)
-    #[arg(long)]
+    /// Emit intermediate representation (ast, wasm)
+    #[arg(long, value_parser = ["ast", "wasm"])]
     pub emit: Option<String>,
 
     /// Target architecture (wasm32, wasm64, native)
@@ -146,4 +146,38 @@ fn find_dol_files(dir: &PathBuf) -> Result<Vec<PathBuf>> {
     }
 
     Ok(dol_files)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::BuildArgs;
+    use clap::{CommandFactory, Parser};
+
+    #[derive(Parser)]
+    struct TestCli {
+        #[command(flatten)]
+        build: BuildArgs,
+    }
+
+    #[test]
+    fn emit_accepts_only_implemented_values() {
+        for ok in ["ast", "wasm"] {
+            let cli = TestCli::try_parse_from(["vudo", "--emit", ok]).unwrap();
+            assert_eq!(cli.build.emit.as_deref(), Some(ok));
+        }
+        for unsupported in ["hir", "mlir"] {
+            let err = TestCli::try_parse_from(["vudo", "--emit", unsupported])
+                .err()
+                .expect("unsupported --emit value must be rejected");
+            assert_eq!(err.kind(), clap::error::ErrorKind::InvalidValue);
+        }
+    }
+
+    #[test]
+    fn emit_help_does_not_advertise_hir_or_mlir() {
+        let help = TestCli::command().render_long_help().to_string();
+        assert!(help.contains("ast") && help.contains("wasm"));
+        assert!(!help.contains("hir"), "help mentions hir: {help}");
+        assert!(!help.contains("mlir"), "help mentions mlir: {help}");
+    }
 }
