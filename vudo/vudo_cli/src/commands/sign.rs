@@ -52,32 +52,10 @@ fn sign_package(
     println!("  {} {} bytes", "Package size:".cyan(), package_data.len());
 
     // Determine key path
-    let key_file = key_path.unwrap_or_else(|| {
-        let vudo_dir = config.vudo_dir();
-        vudo_dir.join("keys").join("default.key")
-    });
+    let key_file = key_path.unwrap_or_else(|| default_key_path(config));
 
     // Load or create signing key
-    let signing_key = if key_file.exists() {
-        println!("  {} {:?}", "Using key:".cyan(), key_file);
-        load_signing_key(&key_file)?
-    } else {
-        println!(
-            "  {} Generating new Ed25519 keypair",
-            "Key not found:".yellow()
-        );
-
-        // Create keys directory
-        if let Some(parent) = key_file.parent() {
-            fs::create_dir_all(parent)?;
-        }
-
-        let key = generate_signing_key();
-        save_signing_key(&key, &key_file)?;
-
-        println!("  {} {:?}", "Saved key to:".green(), key_file);
-        key
-    };
+    let signing_key = load_or_create_signing_key(&key_file)?;
 
     // Get public key
     let verifying_key = signing_key.verifying_key();
@@ -200,6 +178,31 @@ fn verify_package(package_path: &PathBuf) -> Result<()> {
     println!("\n{} Signature is valid!", "✓".green().bold());
 
     Ok(())
+}
+
+/// The developer's default signing key: `<vudo dir>/keys/default.key`.
+/// `vudo new` writes its public key as the manifest author; `vudo sign` signs with it.
+pub(crate) fn default_key_path(config: &VudoConfig) -> PathBuf {
+    config.vudo_dir().join("keys").join("default.key")
+}
+
+/// Load the signing key at `key_file`, generating and saving one if it does not exist.
+pub(crate) fn load_or_create_signing_key(key_file: &PathBuf) -> Result<SigningKey> {
+    if key_file.exists() {
+        println!("  {} {:?}", "Using key:".cyan(), key_file);
+        return load_signing_key(key_file);
+    }
+    println!(
+        "  {} Generating new Ed25519 keypair",
+        "Key not found:".yellow()
+    );
+    if let Some(parent) = key_file.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let key = generate_signing_key();
+    save_signing_key(&key, key_file)?;
+    println!("  {} {:?}", "Saved key to:".green(), key_file);
+    Ok(key)
 }
 
 fn generate_signing_key() -> SigningKey {

@@ -865,10 +865,19 @@ fn test_manifest_content_from_new() {
 
     let manifest_content = fs::read_to_string(&manifest_path).expect("Failed to read manifest");
 
-    // Verify manifest has required fields (current format from vudo new)
+    // spirit_runtime::Manifest format (what `vudo build` and nodes parse),
+    // not the legacy `[spirit]` section that `vudo build` rejected.
     assert!(
-        manifest_content.contains("[spirit]"),
-        "Manifest should have [spirit] section"
+        !manifest_content.contains("[spirit]"),
+        "Manifest must not use the legacy [spirit] section"
+    );
+    assert!(
+        manifest_content.contains("version = { major = 0, minor = 1, patch = 0 }"),
+        "Manifest version must be a SemVer table"
+    );
+    assert!(
+        manifest_content.contains("author =") && manifest_content.contains("[pricing]"),
+        "Manifest must have author and [pricing]"
     );
     assert!(
         manifest_content.contains("name ="),
@@ -986,39 +995,140 @@ fn test_verbose_mode() {
 // This test documents the current manifest format incompatibility
 // =============================================================================
 
-/// This test documents the known incompatibility between the manifest format
-/// produced by `vudo new` and what `spirit_runtime::Manifest` expects.
-///
-/// Currently, `vudo new` creates:
-/// ```toml
-/// [spirit]
-/// name = "..."
-/// version = "0.1.0"
-/// ```
-///
-/// But `spirit_runtime::Manifest` expects:
-/// ```toml
-/// name = "..."
-/// version = { major = 0, minor = 1, patch = 0 }
-/// author = "64-char-hex-string"
-/// ```
-///
-/// This test is marked with #[ignore] until the formats are aligned.
+/// `vudo new` must produce a project that `vudo build` compiles and `vudo run`
+/// executes, for every template. (Was `#[ignore]`d: `vudo new` wrote a
+/// `[spirit]` manifest that `spirit_runtime::Manifest` could not parse, and
+/// templates used DOL the WASM backend cannot compile.)
 #[test]
-#[ignore = "Manifest format from 'vudo new' differs from spirit_runtime::Manifest format"]
 fn test_new_then_build_integration() {
+    for template in ["basic", "cli-tool", "web-service", "library"] {
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        let home = temp_dir.path().to_str().unwrap();
+        let name = format!("it-{}", template);
+
+        let output = run_vudo_with_env(
+            &["new", &name, "--template", template],
+            temp_dir.path(),
+            &[("HOME", home)],
+        );
+        assert_success(&output, &format!("vudo new --template {}", template));
+        let project_path = temp_dir.path().join(&name);
+
+        let output = run_vudo_with_env(&["build"], &project_path, &[("HOME", home)]);
+        assert_success(
+            &output,
+            &format!("vudo build after vudo new ({})", template),
+        );
+
+        let wasm = find_built_spirit(&project_path);
+        let output = run_vudo_with_env(
+            &["run", wasm.to_str().unwrap(), "--capabilities", "log"],
+            &project_path,
+            &[("HOME", home)],
+        );
+        assert_success(&output, &format!("vudo run after vudo new ({})", template));
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.contains("Result:"),
+            "{}: the scaffolded Spirit must run to a result; stdout:\n{}",
+            template,
+            stdout
+        );
+        if template == "basic" {
+            assert!(
+                stdout.contains("[VUDO:INFO]"),
+                "basic template must demonstrate a host call (host_log); stdout:\n{}",
+                stdout
+            );
+        }
+    }
+}
+
+fn manifest_author(project_path: &Path) -> String {
+    let manifest = fs::read_to_string(project_path.join("manifest.toml")).expect("manifest.toml");
+    manifest
+        .lines()
+        .find_map(|l| l.strip_prefix("author = \""))
+        .and_then(|rest| rest.strip_suffix('"'))
+        .expect("manifest must have an author line")
+        .to_string()
+}
+
+/// The scaffolded manifest's `author` is the public key of the developer's
+/// default signing key (the one `vudo sign` uses), so a node that checks
+/// author == signer accepts the Spirit. Two projects share one identity.
+#[test]
+fn test_new_author_is_default_signing_key() {
     let temp_dir = TempDir::new().expect("Failed to create temp directory");
-    let temp_path = temp_dir.path();
+    let home = temp_dir.path().to_str().unwrap();
+    let env = [("HOME", home)];
 
-    // Use vudo new to create the project (uses current [spirit] section format)
-    let output = run_vudo(&["new", "integration-test"], temp_path);
-    assert_success(&output, "vudo new integration-test");
+    assert_success(
+        &run_vudo_with_env(&["new", "first"], temp_dir.path(), &env),
+        "vudo new first",
+    );
+    assert_success(
+        &run_vudo_with_env(&["new", "second"], temp_dir.path(), &env),
+        "vudo new second",
+    );
 
-    let project_path = temp_path.join("integration-test");
+    let key_file = temp_dir.path().join(".config/vudo/keys/default.key");
+    assert!(
+        key_file.exists(),
+        "vudo new must create the default key under $HOME, not elsewhere"
+    );
 
-    // This will fail until manifest formats are aligned
-    let output = run_vudo(&["build"], &project_path);
-    assert_success(&output, "vudo build after vudo new");
+    let author = manifest_author(&temp_dir.path().join("first"));
+    assert_eq!(
+        author.len(),
+        64,
+        "author must be a 64-char hex public key: {}",
+        author
+    );
+    assert!(
+        author.chars().all(|c| c.is_ascii_hexdigit()),
+        "author must be hex: {}",
+        author
+    );
+    assert_ne!(author, "0".repeat(64), "author must not be a placeholder");
+    assert_eq!(
+        author,
+        manifest_author(&temp_dir.path().join("second")),
+        "one identity per developer"
+    );
+
+    let project = temp_dir.path().join("first");
+    assert_success(&run_vudo_with_env(&["build"], &project, &env), "vudo build");
+    let wasm = find_built_spirit(&project);
+    let output = run_vudo_with_env(&["sign", wasm.to_str().unwrap()], &project, &env);
+    assert_success(&output, "vudo sign");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains(&author),
+        "vudo sign must sign with the key whose public half is the manifest author; stdout:\n{}",
+        stdout
+    );
+}
+
+/// Negative: a corrupt default key makes `vudo new` fail loudly; it never
+/// writes a project with a made-up author.
+#[test]
+fn test_new_fails_on_corrupt_default_key() {
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let keys = temp_dir.path().join(".config/vudo/keys");
+    fs::create_dir_all(&keys).unwrap();
+    fs::write(keys.join("default.key"), "not-a-key").unwrap();
+    let home = temp_dir.path().to_str().unwrap();
+
+    let output = run_vudo_with_env(&["new", "corrupt"], temp_dir.path(), &[("HOME", home)]);
+    assert!(
+        !output.status.success(),
+        "vudo new must fail on a corrupt default key"
+    );
+    assert!(
+        !temp_dir.path().join("corrupt/manifest.toml").exists(),
+        "no manifest may be written when the author key cannot be loaded"
+    );
 }
 
 // =============================================================================
