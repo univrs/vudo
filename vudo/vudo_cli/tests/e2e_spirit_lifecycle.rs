@@ -1489,3 +1489,34 @@ fn test_h1a_run_uses_manifest_memory() {
         "manifest memory_bytes must be the sandbox limit"
     );
 }
+
+/// Negative: a newly generated private signing key is never readable by other
+/// users. The key file is 0600 and its keys directory 0700 (Unix).
+#[cfg(unix)]
+#[test]
+fn test_new_signing_key_is_private() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let home = temp_dir.path().to_str().unwrap();
+    let output = run_vudo_with_env(&["new", "private-key"], temp_dir.path(), &[("HOME", home)]);
+    assert_success(&output, "vudo new private-key");
+
+    let keys_dir = temp_dir.path().join(".config/vudo/keys");
+    let key_mode = fs::metadata(keys_dir.join("default.key"))
+        .unwrap()
+        .permissions()
+        .mode()
+        & 0o777;
+    let dir_mode = fs::metadata(&keys_dir).unwrap().permissions().mode() & 0o777;
+    assert_eq!(
+        key_mode, 0o600,
+        "private key must be 0600, got {:o}",
+        key_mode
+    );
+    assert_eq!(
+        dir_mode, 0o700,
+        "keys directory must be 0700, got {:o}",
+        dir_mode
+    );
+}
