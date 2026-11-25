@@ -15,7 +15,7 @@ pub struct SignArgs {
     /// Path to Spirit package to sign
     pub package: PathBuf,
 
-    /// Path to signing key (defaults to ~/.vudo/keys/default.key)
+    /// Path to signing key (defaults to ~/.config/vudo/keys/default.key on Linux/macOS, %APPDATA%\\vudo\\keys\\default.key on Windows)
     #[arg(short, long)]
     pub key: Option<PathBuf>,
 
