@@ -198,6 +198,7 @@ pub(crate) fn load_or_create_signing_key(key_file: &PathBuf) -> Result<SigningKe
     );
     if let Some(parent) = key_file.parent() {
         fs::create_dir_all(parent)?;
+        restrict_permissions(parent, 0o700)?;
     }
     let key = generate_signing_key();
     save_signing_key(&key, key_file)?;
@@ -216,8 +217,35 @@ fn generate_signing_key() -> SigningKey {
 
 fn save_signing_key(key: &SigningKey, path: &PathBuf) -> Result<()> {
     let key_bytes = key.to_bytes();
-    fs::write(path, hex::encode(key_bytes))
+    write_private(path, hex::encode(key_bytes).as_bytes())
         .with_context(|| format!("Failed to save key to {:?}", path))
+}
+
+/// Write a private-key file readable only by its owner (0600 on Unix). The
+/// mode is set at creation, so the key is never briefly world-readable.
+fn write_private(path: &PathBuf, contents: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options.open(path)?.write_all(contents)
+}
+
+/// Restrict a directory to its owner on Unix; no-op elsewhere.
+fn restrict_permissions(path: &std::path::Path, mode: u32) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(mode))
+            .with_context(|| format!("Failed to restrict permissions on {:?}", path))?;
+    }
+    #[cfg(not(unix))]
+    let _ = (path, mode);
+    Ok(())
 }
 
 fn load_signing_key(path: &PathBuf) -> Result<SigningKey> {
