@@ -73,6 +73,14 @@ pub enum CapabilityType {
 
     // Special capabilities
     Unrestricted, // Only for system Spirits
+
+    // Appended, not grouped with the network capabilities: the discriminant
+    // is part of `CapabilityGrant::hash_for_signing`, so inserting a variant
+    // earlier would invalidate every existing signed grant.
+    /// Receive inbound messages (`host_network_recv`). Distinct from
+    /// `NetworkBroadcast`: a Spirit that may talk is not thereby allowed to
+    /// listen.
+    NetworkReceive,
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

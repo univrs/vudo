@@ -10,7 +10,8 @@
 //! - Random: host_random_bytes
 //! - Logging: host_log
 //! - Storage: host_storage_read, host_storage_write, host_storage_delete
-//! - Network: host_network_connect, host_network_listen, host_network_broadcast
+//! - Network: host_network_connect, host_network_listen, host_network_broadcast,
+//!   host_network_recv
 //! - Credit: host_credit_balance, host_credit_transfer, host_credit_reserve, host_credit_release
 //!
 //! ## Memory Layout
@@ -19,20 +20,44 @@
 //! - Lengths are i32 byte counts
 //! - Return values of -1 indicate errors
 //! - Return values of 0 or positive indicate success (may contain result data)
+//!
+//! ## host_network_recv contract
+//! `host_network_recv(buf_ptr: i32, buf_cap: i32) -> i32`, gated by the
+//! `NetworkReceive` capability (deny by default; `NetworkBroadcast` does not
+//! imply it).
+//! - **Non-blocking poll.** Spirits run to completion under a fuel budget, so
+//!   the call never waits: it returns at once with a message or with 0.
+//! - **Buffer ownership.** The Spirit owns `[buf_ptr, buf_ptr + buf_cap)` in
+//!   its linear memory; the host only writes the message bytes there. The
+//!   whole range must lie inside memory.
+//! - **Returns** (codes from [`error_codes`]):
+//!   - `n > 0`: the oldest pending message (`n` bytes) was written at
+//!     `buf_ptr` and consumed. Messages are never empty, so `n` is never 0.
+//!   - `0`: no message pending.
+//!   - `CAPABILITY_DENIED` (-1): no `NetworkReceive`.
+//!   - `INVALID_MEMORY` (-2): no memory export, or the buffer is out of bounds.
+//!   - `INVALID_PARAMETER` (-3): negative `buf_cap`.
+//!   - `NETWORK_ERROR` (-5): the host could not deliver (e.g. no inbox).
+//!   - `BUFFER_TOO_SMALL` (-7): the head message is larger than `buf_cap`.
+//! - On every error nothing is consumed and nothing is written: the message
+//!   stays queued. A 64 KiB buffer (the broadcast size limit) always fits.
+//! - Which messages reach the inbox (and how many are kept) is the host's
+//!   policy, behind `NetworkBackend::recv`. No fuel is charged beyond the
+//!   instructions the Spirit itself executes, as for every other host fn.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use wasmtime::{Caller, Engine, Linker, Memory, StoreLimits, StoreLimitsBuilder};
 
-use crate::capability::CapabilitySet;
+use crate::capability::{CapabilityScope, CapabilitySet, CapabilityType};
 use crate::host::credit::PublicKey;
 use crate::host::log::LogLevel;
 use crate::host::{
     host_credit_available, host_credit_balance, host_credit_consume, host_credit_release,
     host_credit_reserve, host_credit_transfer, host_log, host_network_broadcast,
-    host_network_connect, host_network_listen, host_random_bytes, host_storage_delete,
-    host_storage_read, host_storage_write, host_time_now, CreditBackend, NetworkBackend,
-    StorageBackend,
+    host_network_connect, host_network_listen, host_network_recv, host_random_bytes,
+    host_storage_delete, host_storage_read, host_storage_write, host_time_now, CreditBackend,
+    NetworkBackend, StorageBackend,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -589,6 +614,68 @@ pub fn create_linker(engine: &Engine) -> Linker<HostState> {
             },
         )
         .expect("Failed to register host_network_broadcast");
+
+    // host_network_recv: fn(buf_ptr: i32, buf_cap: i32) -> i32
+    // Non-blocking poll; see the module docs for the full contract.
+    linker
+        .func_wrap(
+            "vudo",
+            "host_network_recv",
+            |mut caller: Caller<'_, HostState>, buf_ptr: i32, buf_cap: i32| -> i32 {
+                use crate::host::{Received, RecvError};
+                // Capability first: a denied Spirit learns nothing else.
+                if !caller
+                    .data()
+                    .capabilities
+                    .has_capability(CapabilityType::NetworkReceive, CapabilityScope::Global)
+                {
+                    return error_codes::CAPABILITY_DENIED;
+                }
+                if buf_cap < 0 {
+                    return error_codes::INVALID_PARAMETER;
+                }
+                let memory = match get_memory(&mut caller) {
+                    Some(m) => m,
+                    None => return error_codes::INVALID_MEMORY,
+                };
+                // Validate the whole buffer before taking a message, so a
+                // bad buffer can never lose one.
+                if buf_ptr < 0
+                    || (buf_ptr as usize).saturating_add(buf_cap as usize)
+                        > memory.data(&caller).len()
+                {
+                    return error_codes::INVALID_MEMORY;
+                }
+                let state = caller.data();
+                match host_network_recv(
+                    &state.capabilities,
+                    state.network.as_ref(),
+                    buf_cap as usize,
+                ) {
+                    Ok(Received::Empty) => error_codes::SUCCESS,
+                    Ok(Received::TooLarge(_)) => error_codes::BUFFER_TOO_SMALL,
+                    Ok(Received::Message(bytes)) => {
+                        if bytes.is_empty() {
+                            // Not a valid message: 0 would read as "none".
+                            return error_codes::NETWORK_ERROR;
+                        }
+                        if bytes.len() > buf_cap as usize {
+                            // Backend broke the `max_len` contract; never
+                            // write past the Spirit's buffer.
+                            return error_codes::INTERNAL_ERROR;
+                        }
+                        if write_memory(&mut caller, &memory, buf_ptr, &bytes) {
+                            bytes.len() as i32
+                        } else {
+                            error_codes::INTERNAL_ERROR
+                        }
+                    }
+                    Err(RecvError::CapabilityDenied) => error_codes::CAPABILITY_DENIED,
+                    Err(RecvError::Backend(_)) => error_codes::NETWORK_ERROR,
+                }
+            },
+        )
+        .expect("Failed to register host_network_recv");
 
     // ═══════════════════════════════════════════════════════════════════════
     // CREDIT FUNCTIONS
@@ -1724,6 +1811,114 @@ mod tests {
 
         // MockNetworkBackend returns peer count >= 0
         assert!(result >= 0);
+    }
+
+    type RecvSpirit = (
+        Store<HostState>,
+        wasmtime::TypedFunc<(i32, i32), i32>,
+        wasmtime::Memory,
+        Arc<MockNetworkBackend>,
+    );
+
+    /// A Spirit that exports `recv(buf_ptr, buf_cap) -> i32` straight onto
+    /// `host_network_recv`, instantiated against a shared mock backend.
+    fn recv_spirit(caps: &[CapabilityType]) -> RecvSpirit {
+        let engine = create_engine();
+        let wasm = wat::parse_str(
+            r#"
+            (module
+                (import "vudo" "host_network_recv" (func $recv (param i32 i32) (result i32)))
+                (memory (export "memory") 1)
+                (func (export "recv") (param i32 i32) (result i32)
+                    local.get 0
+                    local.get 1
+                    call $recv
+                )
+            )
+        "#,
+        )
+        .expect("Failed to parse WAT");
+        let module = Module::new(&engine, &wasm).expect("Failed to compile module");
+        let linker = create_linker(&engine);
+
+        let network = Arc::new(MockNetworkBackend::new());
+        let mut state = create_host_state_with_capabilities(caps);
+        state.network = network.clone();
+        let mut store = Store::new(&engine, state);
+        store.set_fuel(1_000_000).expect("Failed to set fuel");
+
+        let instance = linker
+            .instantiate(&mut store, &module)
+            .expect("Failed to instantiate module");
+        let recv = instance
+            .get_typed_func::<(i32, i32), i32>(&mut store, "recv")
+            .expect("Failed to get function");
+        let memory = instance
+            .get_memory(&mut store, "memory")
+            .expect("memory export");
+        (store, recv, memory, network)
+    }
+
+    #[test]
+    fn test_host_network_recv_delivers_injected_message() {
+        let (mut store, recv, memory, network) = recv_spirit(&[CapabilityType::NetworkReceive]);
+        network.inject_message(b"hello spirit".to_vec());
+
+        let n = recv.call(&mut store, (100, 64)).expect("call");
+        assert_eq!(n, 12);
+        assert_eq!(&memory.data(&store)[100..112], b"hello spirit");
+
+        // Consumed: the next poll finds nothing, and says so with 0.
+        assert_eq!(recv.call(&mut store, (100, 64)).expect("call"), 0);
+        assert_eq!(network.pending_messages(), 0);
+    }
+
+    #[test]
+    fn test_host_network_recv_without_capability_is_denied() {
+        // Broadcast is not receive: talking does not grant listening.
+        let (mut store, recv, memory, network) = recv_spirit(&[CapabilityType::NetworkBroadcast]);
+        network.inject_message(b"not for you".to_vec());
+
+        let rc = recv.call(&mut store, (100, 64)).expect("call");
+        assert_eq!(rc, error_codes::CAPABILITY_DENIED);
+        // Nothing was written and nothing was consumed.
+        assert!(memory.data(&store)[100..164].iter().all(|b| *b == 0));
+        assert_eq!(network.pending_messages(), 1);
+    }
+
+    #[test]
+    fn test_host_network_recv_buffer_too_small_keeps_message() {
+        let (mut store, recv, memory, network) = recv_spirit(&[CapabilityType::NetworkReceive]);
+        network.inject_message(b"0123456789".to_vec());
+
+        assert_eq!(
+            recv.call(&mut store, (0, 4)).expect("call"),
+            error_codes::BUFFER_TOO_SMALL
+        );
+        assert_eq!(network.pending_messages(), 1);
+        assert_eq!(recv.call(&mut store, (0, 10)).expect("call"), 10);
+        assert_eq!(&memory.data(&store)[0..10], b"0123456789");
+    }
+
+    #[test]
+    fn test_host_network_recv_bad_buffer_keeps_message() {
+        let (mut store, recv, _memory, network) = recv_spirit(&[CapabilityType::NetworkReceive]);
+        network.inject_message(b"payload".to_vec());
+
+        // One page is 65536 bytes: this buffer runs past the end.
+        assert_eq!(
+            recv.call(&mut store, (65530, 64)).expect("call"),
+            error_codes::INVALID_MEMORY
+        );
+        assert_eq!(
+            recv.call(&mut store, (-1, 64)).expect("call"),
+            error_codes::INVALID_MEMORY
+        );
+        assert_eq!(
+            recv.call(&mut store, (0, -1)).expect("call"),
+            error_codes::INVALID_PARAMETER
+        );
+        assert_eq!(network.pending_messages(), 1);
     }
 
     // ═══════════════════════════════════════════════════════════════════════════

@@ -588,6 +588,8 @@ pub enum Capability {
     NetworkConnect,
     /// Allow broadcast/multicast network operations
     NetworkBroadcast,
+    /// Allow receiving inbound messages (`host_network_recv`)
+    NetworkReceive,
 
     // Storage capabilities
     /// Allow reading from persistent storage
@@ -627,6 +629,7 @@ impl Capability {
             Capability::NetworkListen,
             Capability::NetworkConnect,
             Capability::NetworkBroadcast,
+            Capability::NetworkReceive,
             Capability::StorageRead,
             Capability::StorageWrite,
             Capability::StorageDelete,
@@ -648,6 +651,7 @@ impl fmt::Display for Capability {
             Capability::NetworkListen => "network_listen",
             Capability::NetworkConnect => "network_connect",
             Capability::NetworkBroadcast => "network_broadcast",
+            Capability::NetworkReceive => "network_receive",
             Capability::StorageRead => "storage_read",
             Capability::StorageWrite => "storage_write",
             Capability::StorageDelete => "storage_delete",
@@ -672,6 +676,7 @@ impl FromStr for Capability {
             "network_listen" => Ok(Capability::NetworkListen),
             "network_connect" => Ok(Capability::NetworkConnect),
             "network_broadcast" => Ok(Capability::NetworkBroadcast),
+            "network_receive" => Ok(Capability::NetworkReceive),
             "storage_read" => Ok(Capability::StorageRead),
             "storage_write" => Ok(Capability::StorageWrite),
             "storage_delete" => Ok(Capability::StorageDelete),
@@ -1142,6 +1147,7 @@ per_fuel_cost = 1
             Capability::NetworkBroadcast.to_string(),
             "network_broadcast"
         );
+        assert_eq!(Capability::NetworkReceive.to_string(), "network_receive");
         assert_eq!(Capability::StorageRead.to_string(), "storage_read");
         assert_eq!(Capability::StorageWrite.to_string(), "storage_write");
         assert_eq!(Capability::StorageDelete.to_string(), "storage_delete");
@@ -1173,7 +1179,7 @@ per_fuel_cost = 1
     #[test]
     fn test_capability_all() {
         let all = Capability::all();
-        assert_eq!(all.len(), 14);
+        assert_eq!(all.len(), 15);
     }
 
     #[test]

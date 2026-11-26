@@ -282,6 +282,7 @@ fn to_capability_type(cap: &Capability) -> CapabilityType {
         Capability::NetworkListen => CapabilityType::NetworkListen,
         Capability::NetworkConnect => CapabilityType::NetworkConnect,
         Capability::NetworkBroadcast => CapabilityType::NetworkBroadcast,
+        Capability::NetworkReceive => CapabilityType::NetworkReceive,
         Capability::StorageRead => CapabilityType::StorageRead,
         Capability::StorageWrite => CapabilityType::StorageWrite,
         Capability::StorageDelete => CapabilityType::StorageDelete,
@@ -302,7 +303,12 @@ fn to_capability_type(cap: &Capability) -> CapabilityType {
 fn parse_cli_capability(cap: &str) -> Result<Vec<CapabilityType>> {
     use CapabilityType::*;
     Ok(match cap {
-        "net" | "network" => vec![NetworkConnect, NetworkListen, NetworkBroadcast],
+        "net" | "network" => vec![
+            NetworkConnect,
+            NetworkListen,
+            NetworkBroadcast,
+            NetworkReceive,
+        ],
         "fs" | "filesystem" | "storage" => vec![StorageRead, StorageWrite, StorageDelete],
         "log" => vec![ActuatorLog],
         "time" => vec![SensorTime],

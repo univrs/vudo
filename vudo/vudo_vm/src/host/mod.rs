@@ -20,8 +20,8 @@ pub use credit::{
 };
 pub use log::{host_log, LogLevel};
 pub use network::{
-    host_network_broadcast, host_network_connect, host_network_listen, ConnectionHandle,
-    ListenerHandle, MockNetworkBackend, NetworkBackend,
+    host_network_broadcast, host_network_connect, host_network_listen, host_network_recv,
+    ConnectionHandle, ListenerHandle, MockNetworkBackend, NetworkBackend, Received, RecvError,
 };
 pub use random::host_random_bytes;
 pub use storage::{

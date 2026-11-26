@@ -4,7 +4,7 @@
 //! All network operations are capability-gated to ensure secure sandbox execution.
 
 use super::{CapabilityScope, CapabilitySet, CapabilityType, HostCallResult};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, RwLock};
 
 /// Maximum address length in bytes
@@ -117,6 +117,40 @@ pub trait NetworkBackend: Send + Sync {
 
     /// Get number of active listeners
     fn listener_count(&self) -> usize;
+
+    /// Take the oldest pending inbound message for this sandbox, if it fits.
+    ///
+    /// Never blocks. A message longer than `max_len` is left at the head of
+    /// the queue (`Received::TooLarge`) so the caller can retry with a bigger
+    /// buffer; nothing is ever silently truncated or dropped here.
+    ///
+    /// The default says receiving is not supported: a backend that cannot
+    /// deliver messages fails rather than pretending the inbox is empty.
+    fn recv(&self, max_len: usize) -> Result<Received, String> {
+        let _ = max_len;
+        Err("receive is not supported by this network backend".into())
+    }
+}
+
+/// Outcome of [`NetworkBackend::recv`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Received {
+    /// No message is pending.
+    Empty,
+    /// The oldest pending message, now consumed.
+    Message(Vec<u8>),
+    /// The oldest pending message is this many bytes, more than the caller's
+    /// buffer. It stays queued.
+    TooLarge(usize),
+}
+
+/// Why [`host_network_recv`] delivered nothing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RecvError {
+    /// The sandbox lacks `NetworkReceive`. Nothing was consumed.
+    CapabilityDenied,
+    /// The backend failed (or does not support receiving).
+    Backend(String),
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -134,6 +168,7 @@ pub struct MockNetworkBackend {
     next_connection_id: Arc<RwLock<u64>>,
     next_listener_id: Arc<RwLock<u64>>,
     broadcast_messages: Arc<RwLock<Vec<Vec<u8>>>>,
+    inbox: Arc<RwLock<VecDeque<Vec<u8>>>>,
     /// If set, connect operations will fail with this error
     pub connect_error: Arc<RwLock<Option<String>>>,
     /// If set, listen operations will fail with this error
@@ -151,6 +186,7 @@ impl MockNetworkBackend {
             next_connection_id: Arc::new(RwLock::new(1)),
             next_listener_id: Arc::new(RwLock::new(1)),
             broadcast_messages: Arc::new(RwLock::new(Vec::new())),
+            inbox: Arc::new(RwLock::new(VecDeque::new())),
             connect_error: Arc::new(RwLock::new(None)),
             listen_error: Arc::new(RwLock::new(None)),
             broadcast_error: Arc::new(RwLock::new(None)),
@@ -170,6 +206,16 @@ impl MockNetworkBackend {
     /// Get list of broadcast messages sent
     pub fn broadcast_messages(&self) -> Vec<Vec<u8>> {
         self.broadcast_messages.read().unwrap().clone()
+    }
+
+    /// Queue an inbound message for `recv` (as if a peer had sent it).
+    pub fn inject_message(&self, message: Vec<u8>) {
+        self.inbox.write().unwrap().push_back(message);
+    }
+
+    /// Number of inbound messages not yet received.
+    pub fn pending_messages(&self) -> usize {
+        self.inbox.read().unwrap().len()
     }
 
     /// Set an error for connect operations
@@ -192,6 +238,7 @@ impl MockNetworkBackend {
         self.connections.write().unwrap().clear();
         self.listeners.write().unwrap().clear();
         self.broadcast_messages.write().unwrap().clear();
+        self.inbox.write().unwrap().clear();
         *self.next_connection_id.write().unwrap() = 1;
         *self.next_listener_id.write().unwrap() = 1;
     }
@@ -304,6 +351,18 @@ impl NetworkBackend for MockNetworkBackend {
 
     fn listener_count(&self) -> usize {
         self.listeners.read().map(|l| l.len()).unwrap_or(0)
+    }
+
+    fn recv(&self, max_len: usize) -> Result<Received, String> {
+        let mut inbox = self
+            .inbox
+            .write()
+            .map_err(|e| format!("Lock error: {}", e))?;
+        Ok(match inbox.front().map(Vec::len) {
+            None => Received::Empty,
+            Some(len) if len > max_len => Received::TooLarge(len),
+            Some(_) => Received::Message(inbox.pop_front().expect("front exists")),
+        })
     }
 }
 
@@ -449,6 +508,32 @@ pub fn host_network_broadcast(
         }
         Err(e) => HostCallResult::error(format!("Network broadcast error: {}", e)),
     }
+}
+
+/// Receive the oldest pending inbound message (non-blocking poll).
+///
+/// Requires NetworkReceive capability. Checked before the backend is touched,
+/// so a denied call consumes nothing.
+///
+/// # Arguments
+/// * `caps` - Capability set to check permissions
+/// * `network` - Network backend holding this sandbox's inbox
+/// * `max_len` - Largest message the caller can accept
+///
+/// # Returns
+/// * `Ok(Received::Message(bytes))` - the message, now consumed
+/// * `Ok(Received::Empty)` - nothing pending
+/// * `Ok(Received::TooLarge(len))` - head message is `len` bytes; still queued
+/// * `Err(RecvError::CapabilityDenied)` / `Err(RecvError::Backend(_))`
+pub fn host_network_recv(
+    caps: &CapabilitySet,
+    network: &dyn NetworkBackend,
+    max_len: usize,
+) -> Result<Received, RecvError> {
+    if !caps.has_capability(CapabilityType::NetworkReceive, CapabilityScope::Global) {
+        return Err(RecvError::CapabilityDenied);
+    }
+    network.recv(max_len).map_err(RecvError::Backend)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -997,6 +1082,117 @@ mod tests {
         assert_eq!(network.connection_count(), 2);
         assert_eq!(network.listener_count(), 1);
         assert_eq!(network.broadcast_messages().len(), 1);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // HOST_NETWORK_RECV TESTS
+    // ═══════════════════════════════════════════════════════════════════════
+
+    fn create_receive_caps() -> CapabilitySet {
+        let mut cap_set = CapabilitySet::new();
+        cap_set.add_grant(CapabilityGrant::new(
+            1,
+            CapabilityType::NetworkReceive,
+            CapabilityScope::Global,
+            [0u8; 32],
+            [1u8; 32],
+            current_timestamp(),
+            None,
+            [0u8; 64],
+        ));
+        cap_set
+    }
+
+    #[test]
+    fn test_host_network_recv_delivers_injected_messages_in_order() {
+        let caps = create_receive_caps();
+        let network = MockNetworkBackend::new();
+        network.inject_message(b"first".to_vec());
+        network.inject_message(b"second".to_vec());
+
+        assert_eq!(
+            host_network_recv(&caps, &network, 64),
+            Ok(Received::Message(b"first".to_vec()))
+        );
+        assert_eq!(
+            host_network_recv(&caps, &network, 64),
+            Ok(Received::Message(b"second".to_vec()))
+        );
+        assert_eq!(host_network_recv(&caps, &network, 64), Ok(Received::Empty));
+    }
+
+    #[test]
+    fn test_host_network_recv_without_capability_is_denied_and_consumes_nothing() {
+        let network = MockNetworkBackend::new();
+        network.inject_message(b"secret".to_vec());
+
+        // Neither no caps nor every other network cap grants receive.
+        for caps in [CapabilitySet::new(), create_network_caps()] {
+            assert_eq!(
+                host_network_recv(&caps, &network, 64),
+                Err(RecvError::CapabilityDenied)
+            );
+        }
+        assert_eq!(network.pending_messages(), 1);
+    }
+
+    #[test]
+    fn test_host_network_recv_too_large_leaves_message_queued() {
+        let caps = create_receive_caps();
+        let network = MockNetworkBackend::new();
+        network.inject_message(b"0123456789".to_vec());
+
+        assert_eq!(
+            host_network_recv(&caps, &network, 4),
+            Ok(Received::TooLarge(10))
+        );
+        assert_eq!(network.pending_messages(), 1);
+        assert_eq!(
+            host_network_recv(&caps, &network, 10),
+            Ok(Received::Message(b"0123456789".to_vec()))
+        );
+    }
+
+    #[test]
+    fn test_host_network_recv_with_unrestricted() {
+        let network = MockNetworkBackend::new();
+        network.inject_message(b"hi".to_vec());
+        assert_eq!(
+            host_network_recv(&create_unrestricted_capset(), &network, 64),
+            Ok(Received::Message(b"hi".to_vec()))
+        );
+    }
+
+    #[test]
+    fn test_host_network_recv_backend_without_receive_support_errors() {
+        struct SendOnly;
+        impl NetworkBackend for SendOnly {
+            fn connect(&self, _: &str) -> Result<ConnectionHandle, String> {
+                Err("no".into())
+            }
+            fn listen(&self, _: u16) -> Result<ListenerHandle, String> {
+                Err("no".into())
+            }
+            fn broadcast(&self, _: &[u8]) -> Result<usize, String> {
+                Ok(0)
+            }
+            fn close_connection(&self, _: ConnectionHandle) -> Result<(), String> {
+                Ok(())
+            }
+            fn close_listener(&self, _: ListenerHandle) -> Result<(), String> {
+                Ok(())
+            }
+            fn connection_count(&self) -> usize {
+                0
+            }
+            fn listener_count(&self) -> usize {
+                0
+            }
+        }
+        assert!(matches!(
+            host_network_recv(&create_receive_caps(), &SendOnly, 64),
+            Err(RecvError::Backend(_))
+        ));
     }
 
     #[test]
