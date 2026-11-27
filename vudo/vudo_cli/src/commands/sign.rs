@@ -3,21 +3,32 @@
 use anyhow::{Context, Result};
 use clap::Args;
 use colored::*;
-use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
-use sha2::{Digest, Sha256};
+use ed25519_dalek::SigningKey;
+use spirit_runtime::Manifest;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use vudo_cli::node::{content_hash, SignedPackage};
 
 use crate::config::VudoConfig;
 
 #[derive(Args, Debug)]
 pub struct SignArgs {
-    /// Path to Spirit package to sign
+    /// Spirit to sign: a WASM module (`vudo build` output) or a `vudo pack`
+    /// package. With `--verify`: a signed package.
     pub package: PathBuf,
 
     /// Path to signing key (defaults to ~/.config/vudo/keys/default.key on Linux/macOS, %APPDATA%\\vudo\\keys\\default.key on Windows)
     #[arg(short, long)]
     pub key: Option<PathBuf>,
+
+    /// Manifest for a WASM module (defaults to manifest.toml next to it).
+    /// Its `author` must be the signing key's public key.
+    #[arg(short, long)]
+    pub manifest: Option<PathBuf>,
+
+    /// Where to write the signed package (defaults to <input>.signed.spirit)
+    #[arg(short, long)]
+    pub output: Option<PathBuf>,
 
     /// Verify signature instead of signing
     #[arg(long)]
@@ -28,71 +39,90 @@ pub async fn execute(args: SignArgs, config: &VudoConfig) -> Result<()> {
     if args.verify {
         verify_package(&args.package)?;
     } else {
-        sign_package(&args.package, args.key, config)?;
+        sign_package(&args, config)?;
     }
 
     Ok(())
 }
 
-fn sign_package(
-    package_path: &PathBuf,
-    key_path: Option<PathBuf>,
-    config: &VudoConfig,
-) -> Result<()> {
+/// Sign into a node package (Spirit Hosting H2d-3): JSON `{manifest, wasm,
+/// wasm_signature}`, the format a DOLOS node publishes and runs.
+fn sign_package(args: &SignArgs, config: &VudoConfig) -> Result<()> {
+    let package_path = &args.package;
     println!(
         "{} Spirit package: {:?}",
         "Signing".green().bold(),
         package_path
     );
 
-    // Read package data
-    let package_data = fs::read(package_path)
+    let data = fs::read(package_path)
         .with_context(|| format!("Failed to read package: {:?}", package_path))?;
+    let (manifest, wasm) = manifest_and_wasm(package_path, &data, args.manifest.as_ref())?;
 
-    println!("  {} {} bytes", "Package size:".cyan(), package_data.len());
+    println!("  {} {} bytes", "WASM size:".cyan(), wasm.len());
 
-    // Determine key path
-    let key_file = key_path.unwrap_or_else(|| default_key_path(config));
+    let key_file = args.key.clone().unwrap_or_else(|| default_key_path(config));
+    let key = load_or_create_signing_key(&key_file)?;
+    let key = spirit_runtime::SigningKey::from_bytes(&key.to_bytes())
+        .map_err(|e| anyhow::anyhow!("signing key: {e}"))?;
 
-    // Load or create signing key
-    let signing_key = load_or_create_signing_key(&key_file)?;
+    let signed = SignedPackage::sign(manifest, wasm, &key)?;
+    let bytes = signed.to_bytes()?;
 
-    // Get public key
-    let verifying_key = signing_key.verifying_key();
-    let public_key_hex = hex::encode(verifying_key.as_bytes());
+    println!(
+        "  {} {}",
+        "Public key:".cyan(),
+        key.verifying_key().to_hex()
+    );
+    println!("  {} {}", "Name:".cyan(), signed.name());
+    println!("  {} {}", "Content hash:".cyan(), content_hash(&bytes));
 
-    println!("  {} {}", "Public key:".cyan(), public_key_hex);
-
-    // Hash the package data
-    let mut hasher = Sha256::new();
-    hasher.update(&package_data);
-    let hash = hasher.finalize();
-
-    println!("  {} {}", "Package hash:".cyan(), hex::encode(hash));
-
-    // Sign the hash
-    let signature = signing_key.sign(&hash);
-    let signature_bytes = signature.to_bytes();
-
-    println!("  {} {}", "Signature:".cyan(), hex::encode(signature_bytes));
-
-    // Create signed package
-    let mut signed_package = Vec::new();
-    signed_package.extend_from_slice(b"SIGNED\n");
-    signed_package.extend_from_slice(verifying_key.as_bytes());
-    signed_package.extend_from_slice(b"\n");
-    signed_package.extend_from_slice(&signature_bytes);
-    signed_package.extend_from_slice(b"\n");
-    signed_package.extend_from_slice(&package_data);
-
-    // Write signed package
-    let signed_path = package_path.with_extension("signed.spirit");
-    fs::write(&signed_path, signed_package)
+    let signed_path = args
+        .output
+        .clone()
+        .unwrap_or_else(|| package_path.with_extension("signed.spirit"));
+    fs::write(&signed_path, bytes)
         .with_context(|| format!("Failed to write signed package: {:?}", signed_path))?;
 
     println!("\n{} Signed package: {:?}", "✓".green().bold(), signed_path);
 
     Ok(())
+}
+
+/// The manifest and WASM to sign: from a `vudo pack` package, or a WASM
+/// module plus its manifest.toml.
+fn manifest_and_wasm<'a>(
+    path: &Path,
+    data: &'a [u8],
+    manifest_path: Option<&PathBuf>,
+) -> Result<(Manifest, &'a [u8])> {
+    if let Some(rest) = data.strip_prefix(b"MANIFEST\n".as_slice()) {
+        const SEP: &[u8] = b"\n\nWASM\n";
+        let at = rest
+            .windows(SEP.len())
+            .position(|w| w == SEP)
+            .context("Invalid vudo pack package: no WASM section")?;
+        let toml_src = std::str::from_utf8(&rest[..at]).context("manifest is not UTF-8")?;
+        let manifest = toml::from_str(toml_src).context("Failed to parse packaged manifest")?;
+        return Ok((manifest, &rest[at + SEP.len()..]));
+    }
+    if !data.starts_with(b"\0asm") {
+        anyhow::bail!("{path:?} is neither a WASM module nor a `vudo pack` package");
+    }
+    let manifest_file = manifest_path.cloned().unwrap_or_else(|| {
+        path.parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("manifest.toml")
+    });
+    let src = fs::read_to_string(&manifest_file).with_context(|| {
+        format!(
+            "Failed to read manifest {:?} (use --manifest)",
+            manifest_file
+        )
+    })?;
+    let manifest = toml::from_str(&src)
+        .with_context(|| format!("Failed to parse manifest {:?}", manifest_file))?;
+    Ok((manifest, data))
 }
 
 fn verify_package(package_path: &PathBuf) -> Result<()> {
@@ -102,79 +132,14 @@ fn verify_package(package_path: &PathBuf) -> Result<()> {
         package_path
     );
 
-    // Read package
-    let package_data = fs::read(package_path)
+    let bytes = fs::read(package_path)
         .with_context(|| format!("Failed to read package: {:?}", package_path))?;
+    let package = SignedPackage::from_bytes(&bytes)?;
+    package.verify().context("Signature verification failed")?;
 
-    // Check if it's signed
-    if !package_data.starts_with(b"SIGNED\n") {
-        anyhow::bail!("Package is not signed");
-    }
-
-    // Parse signature components
-    let content = String::from_utf8_lossy(&package_data);
-    let lines: Vec<&str> = content.lines().collect();
-
-    if lines.len() < 4 {
-        anyhow::bail!("Invalid signed package format");
-    }
-
-    let public_key_bytes = hex::decode(lines[1].trim()).context("Invalid public key format")?;
-    let signature_bytes = hex::decode(lines[2].trim()).context("Invalid signature format")?;
-
-    // Find where the actual package data starts
-    let data_start = package_data
-        .iter()
-        .position(|&b| b == b'\n')
-        .and_then(|i| {
-            package_data[i + 1..]
-                .iter()
-                .position(|&b| b == b'\n')
-                .map(|j| i + j + 2)
-        })
-        .and_then(|i| {
-            package_data[i + 1..]
-                .iter()
-                .position(|&b| b == b'\n')
-                .map(|j| i + j + 2)
-        })
-        .context("Invalid package format")?;
-
-    let original_data = &package_data[data_start..];
-
-    // Reconstruct verifying key
-    let verifying_key = VerifyingKey::from_bytes(
-        public_key_bytes
-            .as_slice()
-            .try_into()
-            .context("Invalid public key length")?,
-    )
-    .context("Invalid public key")?;
-
-    // Reconstruct signature
-    let signature = Signature::from_bytes(
-        signature_bytes
-            .as_slice()
-            .try_into()
-            .context("Invalid signature length")?,
-    );
-
-    // Hash the original data
-    let mut hasher = Sha256::new();
-    hasher.update(original_data);
-    let hash = hasher.finalize();
-
-    // Verify signature
-    verifying_key
-        .verify(&hash, &signature)
-        .context("Signature verification failed")?;
-
-    println!(
-        "  {} {}",
-        "Public key:".cyan(),
-        hex::encode(verifying_key.as_bytes())
-    );
-    println!("  {} {}", "Signature:".cyan(), hex::encode(signature_bytes));
+    println!("  {} {}", "Public key:".cyan(), package.manifest.author);
+    println!("  {} {}", "Name:".cyan(), package.name());
+    println!("  {} {}", "Content hash:".cyan(), content_hash(&bytes));
     println!("\n{} Signature is valid!", "✓".green().bold());
 
     Ok(())

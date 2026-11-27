@@ -62,10 +62,10 @@ enum Commands {
     /// Sign package with Ed25519 identity
     Sign(SignArgs),
 
-    /// Publish to the Imaginarium
+    /// Publish a signed Spirit to a node
     Publish(PublishArgs),
 
-    /// Download Spirit from Imaginarium
+    /// Summon (fetch and run) a Spirit on a node by name or hash
     Summon(SummonArgs),
 
     /// Install Spirit to local registry

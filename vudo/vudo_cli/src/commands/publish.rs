@@ -1,4 +1,9 @@
-//! `vudo publish` - Publish to the Imaginarium
+//! `vudo publish` - Publish a signed Spirit to a DOLOS node
+//!
+//! The package (`vudo sign` output) is verified locally, then posted to the
+//! node's `POST /api/packages`. The node stores it under its content hash,
+//! announces it to its peers and records its name in the DHT, so any node in
+//! the network can summon it by `author/name@version` (Spirit Hosting H2d-3).
 
 use anyhow::{Context, Result};
 use clap::Args;
@@ -7,35 +12,20 @@ use std::fs;
 use std::path::PathBuf;
 
 use crate::config::VudoConfig;
+use vudo_cli::node;
 
 #[derive(Args, Debug)]
 pub struct PublishArgs {
-    /// Path to Spirit package (defaults to searching current directory)
+    /// Path to the signed Spirit package (defaults to the signed package in
+    /// the current directory)
     pub package: Option<PathBuf>,
 
-    /// Visibility (public, unlisted, private)
-    #[arg(long)]
-    pub public: bool,
-
-    #[arg(long)]
-    pub unlisted: bool,
-
-    #[arg(long)]
-    pub private: bool,
-
-    /// Pricing model (free, or credits per summon)
-    #[arg(long)]
-    pub free: bool,
-
-    #[arg(long)]
-    pub credits: Option<u64>,
-
-    /// Registry URL (defaults to config default)
-    #[arg(long)]
-    pub registry: Option<String>,
+    /// Node API base URL, e.g. http://127.0.0.1:8080
+    #[arg(long, default_value = "http://127.0.0.1:8080")]
+    pub node: String,
 }
 
-pub async fn execute(args: PublishArgs, config: &VudoConfig) -> Result<()> {
+pub async fn execute(args: PublishArgs, _config: &VudoConfig) -> Result<()> {
     // Determine package path
     let package_path = if let Some(path) = args.package {
         path
@@ -55,87 +45,28 @@ pub async fn execute(args: PublishArgs, config: &VudoConfig) -> Result<()> {
         .with_context(|| format!("Failed to read package: {:?}", package_path))?;
 
     println!("  {} {} bytes", "Package size:".cyan(), package_data.len());
+    println!("  {} {}", "Node:".cyan(), args.node);
 
-    // Verify it's signed
-    if !package_data.starts_with(b"SIGNED\n") {
-        println!(
-            "{} Package is not signed. Run 'vudo sign' first.",
-            "Warning:".yellow().bold()
-        );
-    }
+    let published = node::publish(&args.node, &package_data).await?;
 
-    // Determine visibility
-    let visibility = if args.public {
-        "public"
-    } else if args.unlisted {
-        "unlisted"
-    } else if args.private {
-        "private"
-    } else {
-        "public" // Default
-    };
+    println!("  {} {}", "Content hash:".cyan(), published.hash);
+    println!("  {} {}", "Name:".cyan(), published.spirit_name());
+    println!(
+        "\n{} Published. Summon it from any node with:\n  vudo summon {} --node <url>",
+        "✓".green().bold(),
+        published.spirit_name()
+    );
 
-    println!("  {} {}", "Visibility:".cyan(), visibility);
-
-    // Determine pricing
-    let pricing = if args.free {
-        "free".to_string()
-    } else if let Some(credits) = args.credits {
-        format!("{} credits per summon", credits)
-    } else {
-        "free".to_string() // Default
-    };
-
-    println!("  {} {}", "Pricing:".cyan(), pricing);
-
-    // Determine registry
-    let registry = args
-        .registry
-        .or_else(|| config.default_registry())
-        .unwrap_or_else(|| "https://imaginarium.vudo.univrs.io".to_string());
-
-    println!("  {} {}", "Registry:".cyan(), registry);
-
-    // There is no network registry yet. Publishing over the mycelial network
-    // (content-addressed, announced on gossipsub) is Spirit Hosting Plan H2.
-    // Never report success without doing the work.
-    let _ = (registry, package_data);
-    anyhow::bail!("not implemented: network registry arrives in Spirit Hosting Plan H2")
+    Ok(())
 }
 
 fn find_spirit_package(dir: &str) -> Result<PathBuf> {
-    let dir_path = PathBuf::from(dir);
-
-    // Look for .spirit files
-    for entry in fs::read_dir(&dir_path)? {
-        let entry = entry?;
-        let path = entry.path();
-
-        if path.is_file() {
-            if let Some(ext) = path.extension() {
-                if ext == "spirit" {
-                    // Prefer signed packages
-                    if path.to_string_lossy().contains("signed") {
-                        return Ok(path);
-                    }
-                }
-            }
+    for entry in fs::read_dir(dir)? {
+        let path = entry?.path();
+        if path.is_file() && path.to_string_lossy().ends_with(".signed.spirit") {
+            return Ok(path);
         }
     }
 
-    // If no signed package, look for any .spirit file
-    for entry in fs::read_dir(&dir_path)? {
-        let entry = entry?;
-        let path = entry.path();
-
-        if path.is_file() {
-            if let Some(ext) = path.extension() {
-                if ext == "spirit" {
-                    return Ok(path);
-                }
-            }
-        }
-    }
-
-    anyhow::bail!("No Spirit package found in current directory. Run 'vudo pack' first.")
+    anyhow::bail!("No signed Spirit package found in current directory. Run 'vudo sign' first.")
 }
