@@ -6,7 +6,9 @@
 //! - `vudo run` - Execute a Spirit in the sandbox
 //! - `vudo check` - Validate DOL syntax
 //! - `vudo pack` - Package Spirit for distribution
-//! - `vudo sign` - Sign and verify packages
+//! - `vudo sign` - Sign and verify packages (node package format)
+//! - `vudo publish` / `vudo summon` - negative oracles (the real-node oracle
+//!   lives in univrs/network: `h2d3_vudo_publish_then_summon_by_name_on_another_node`)
 //!
 //! All tests run in isolated temporary directories to ensure reproducibility.
 //!
@@ -501,70 +503,91 @@ fn test_pack_fails_without_build() {
 // Test 5: vudo sign and verify workflow
 // =============================================================================
 
-/// Tests the full sign and verify workflow.
-///
-/// Note: The current sign implementation writes raw bytes to the signed package,
-/// but the verify implementation expects hex-encoded strings. This test is marked
-/// as ignored until the implementation is fixed.
+/// Write a fresh signing key to `path` (hex, as `vudo` stores keys) and make
+/// `project_path`'s manifest name its public key as author. Returns the key.
+fn author_project_with_new_key(project_path: &Path, key_path: &Path) -> String {
+    let secret: [u8; 32] = rand::random();
+    fs::write(key_path, hex::encode(secret)).expect("write key");
+    let public = hex::encode(
+        ed25519_dalek::SigningKey::from_bytes(&secret)
+            .verifying_key()
+            .as_bytes(),
+    );
+    let manifest_path = project_path.join("manifest.toml");
+    let manifest = fs::read_to_string(&manifest_path).unwrap().replace(
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        &public,
+    );
+    fs::write(manifest_path, manifest).unwrap();
+    public
+}
+
+/// Tests the full sign and verify workflow: `vudo sign` writes the node
+/// package format (`{manifest, wasm, wasm_signature}`, Spirit Hosting H2d-3)
+/// and `vudo sign --verify` makes the node's checks.
 #[test]
-#[ignore = "Sign writes raw bytes but verify expects hex-encoded strings - implementation mismatch"]
 fn test_sign_and_verify_workflow() {
     let temp_dir = TempDir::new().expect("Failed to create temp directory");
     let temp_path = temp_dir.path();
-
-    // Create a custom VUDO_HOME for key storage isolation
-    let vudo_home = temp_path.join(".vudo");
-    fs::create_dir_all(&vudo_home).expect("Failed to create vudo home");
-
-    // Create project with compatible manifest
     let project_path = create_compatible_spirit_project(temp_path, "sign-test");
+    let key = temp_path.join("author.key");
+    let author = author_project_with_new_key(&project_path, &key);
 
-    let output = run_vudo(&["build"], &project_path);
-    assert_success(&output, "vudo build");
-
-    let output = run_vudo(&["pack"], &project_path);
-    assert_success(&output, "vudo pack");
-
-    // Get the packed file path
+    assert_success(&run_vudo(&["build"], &project_path), "vudo build");
+    assert_success(&run_vudo(&["pack"], &project_path), "vudo pack");
     let pack_file = project_path.join("sign-test-0.1.0.spirit");
-    assert!(pack_file.exists(), "Pack file should exist");
 
-    // Sign the package (with isolated VUDO_HOME)
-    let output = run_vudo_with_env(
-        &["sign", pack_file.to_str().unwrap()],
+    let output = run_vudo(
+        &[
+            "sign",
+            "--key",
+            key.to_str().unwrap(),
+            pack_file.to_str().unwrap(),
+        ],
         &project_path,
-        &[("VUDO_HOME", vudo_home.to_str().unwrap())],
     );
     assert_success(&output, "vudo sign");
-
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("Signing") || stdout.contains("Signed"),
-        "Sign output should indicate signing: {}",
-        stdout
+        stdout.contains(&format!("{author}/sign-test@0.1.0")),
+        "sign should print the Spirit name: {stdout}"
     );
 
-    // Check that signed package was created
     let signed_file = pack_file.with_extension("signed.spirit");
-    assert!(
-        signed_file.exists(),
-        "Signed Spirit file should exist at {:?}",
-        signed_file
+    let package: serde_json::Value =
+        serde_json::from_slice(&fs::read(&signed_file).unwrap()).expect("JSON package");
+    assert_eq!(package["manifest"]["author"], author.as_str());
+    assert!(package["manifest"]["signature"].is_string());
+    assert!(package["wasm_signature"].is_string());
+    let wasm = base64::Engine::decode(
+        &base64::engine::general_purpose::STANDARD,
+        package["wasm"].as_str().unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        wasm,
+        fs::read(project_path.join("sign-test.spirit")).unwrap(),
+        "the package carries exactly the built WASM"
     );
 
-    // Verify the signature
-    let output = run_vudo_with_env(
+    let output = run_vudo(
         &["sign", "--verify", signed_file.to_str().unwrap()],
         &project_path,
-        &[("VUDO_HOME", vudo_home.to_str().unwrap())],
     );
     assert_success(&output, "vudo sign --verify");
+    assert!(String::from_utf8_lossy(&output.stdout).contains("valid"));
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains("valid") || stdout.contains("Verifying") || stdout.contains("verified"),
-        "Verify output should indicate valid signature: {}",
-        stdout
+    // Negative: a tampered package never verifies.
+    let mut tampered = package.clone();
+    tampered["manifest"]["name"] = "impostor".into();
+    let tampered_file = temp_path.join("tampered.signed.spirit");
+    fs::write(&tampered_file, serde_json::to_vec(&tampered).unwrap()).unwrap();
+    assert_failure(
+        &run_vudo(
+            &["sign", "--verify", tampered_file.to_str().unwrap()],
+            &project_path,
+        ),
+        "vudo sign --verify (tampered manifest)",
     );
 }
 
@@ -572,45 +595,61 @@ fn test_sign_and_verify_workflow() {
 fn test_sign_with_custom_key() {
     let temp_dir = TempDir::new().expect("Failed to create temp directory");
     let temp_path = temp_dir.path();
-
-    // Create a custom key directory
-    let key_dir = temp_path.join("custom-keys");
-    fs::create_dir_all(&key_dir).expect("Failed to create key directory");
-
-    // Create project with compatible manifest
     let project_path = create_compatible_spirit_project(temp_path, "custom-key-test");
+    let custom_key = temp_path.join("my-signing.key");
+    author_project_with_new_key(&project_path, &custom_key);
 
-    let output = run_vudo(&["build"], &project_path);
-    assert_success(&output, "vudo build");
+    assert_success(&run_vudo(&["build"], &project_path), "vudo build");
 
-    let output = run_vudo(&["pack"], &project_path);
-    assert_success(&output, "vudo pack");
-
-    let pack_file = project_path.join("custom-key-test-0.1.0.spirit");
-    let custom_key = key_dir.join("my-signing.key");
-
-    // Sign with custom key path (key will be generated automatically)
+    // Sign the built WASM directly; its manifest.toml sits next to it.
+    let wasm_file = project_path.join("custom-key-test.spirit");
     let output = run_vudo(
         &[
             "sign",
             "--key",
             custom_key.to_str().unwrap(),
-            pack_file.to_str().unwrap(),
+            wasm_file.to_str().unwrap(),
         ],
         &project_path,
     );
     assert_success(&output, "vudo sign --key custom-key");
 
-    // Verify the key was created
-    assert!(
-        custom_key.exists(),
-        "Custom key file should be created at {:?}",
-        custom_key
-    );
-
-    // Verify the signed package was created
-    let signed_file = pack_file.with_extension("signed.spirit");
+    let signed_file = wasm_file.with_extension("signed.spirit");
     assert!(signed_file.exists(), "Signed file should exist");
+    assert_success(
+        &run_vudo(
+            &["sign", "--verify", signed_file.to_str().unwrap()],
+            &project_path,
+        ),
+        "vudo sign --verify",
+    );
+}
+
+/// A node refuses a package not signed by its manifest author, and the author
+/// is part of the Spirit's name: `vudo sign` never signs for someone else.
+#[test]
+fn test_sign_refuses_a_manifest_of_another_author() {
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let temp_path = temp_dir.path();
+    // Manifest author is the placeholder key, not ours.
+    let project_path = create_compatible_spirit_project(temp_path, "other-author");
+    assert_success(&run_vudo(&["build"], &project_path), "vudo build");
+    let key = temp_path.join("mine.key");
+    fs::write(&key, hex::encode([7u8; 32])).unwrap();
+
+    let wasm_file = project_path.join("other-author.spirit");
+    let output = run_vudo(
+        &[
+            "sign",
+            "--key",
+            key.to_str().unwrap(),
+            wasm_file.to_str().unwrap(),
+        ],
+        &project_path,
+    );
+    assert_failure(&output, "vudo sign (author is not the signing key)");
+    assert!(String::from_utf8_lossy(&output.stderr).contains("not the signing key"));
+    assert!(!wasm_file.with_extension("signed.spirit").exists());
 }
 
 #[test]
@@ -1253,6 +1292,8 @@ fn test_h0_run_rejects_non_wasm() {
     assert_failure(&output, "vudo run on a non-WASM file");
 }
 
+/// H2d-3: publish posts only a verified signed package; an unsigned one is
+/// refused locally and never reported as published.
 #[test]
 fn test_h0_publish_never_reports_success() {
     let temp_dir = TempDir::new().expect("Failed to create temp directory");
@@ -1260,38 +1301,60 @@ fn test_h0_publish_never_reports_success() {
     assert_success(&run_vudo(&["build"], &project_path), "vudo build");
     assert_success(&run_vudo(&["pack"], &project_path), "vudo pack");
 
-    let output = run_vudo(&["publish", "h0-publish-0.1.0.spirit"], &project_path);
-    assert_failure(&output, "vudo publish (network registry not implemented)");
+    let output = run_vudo(
+        &[
+            "publish",
+            "h0-publish-0.1.0.spirit",
+            "--node",
+            "http://127.0.0.1:9",
+        ],
+        &project_path,
+    );
+    assert_failure(&output, "vudo publish (unsigned package)");
     let all = format!(
         "{}{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(all.contains("H2"), "error should point to plan H2: {}", all);
     assert!(
-        !all.contains("published successfully"),
+        all.contains("vudo sign"),
+        "error should say to sign: {}",
+        all
+    );
+    assert!(
+        !all.contains("Published"),
         "must not claim success: {}",
         all
     );
 }
 
+/// H2d-3: summon succeeds only when a node ran the Spirit. With no node to
+/// answer, or a malformed name, it fails and writes nothing.
 #[test]
 fn test_h0_summon_never_reports_success_or_writes_placeholder() {
     let temp_dir = TempDir::new().expect("Failed to create temp directory");
-    let out_dir = temp_dir.path().join("spirits");
+    let name = format!("{}/thing@0.1.0", "ab".repeat(32));
 
     let output = run_vudo(
-        &[
-            "summon",
-            "@someone/thing",
-            "--output",
-            out_dir.to_str().unwrap(),
-        ],
+        &["summon", &name, "--node", "http://127.0.0.1:9"],
         temp_dir.path(),
     );
-    assert_failure(&output, "vudo summon (network registry not implemented)");
+    assert_failure(&output, "vudo summon (no node)");
     assert!(
-        !out_dir.join("thing.spirit").exists(),
+        String::from_utf8_lossy(&output.stderr).contains("cannot reach node"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("ran on the node"));
+
+    let output = run_vudo(
+        &["summon", "@someone/thing", "--node", "http://127.0.0.1:9"],
+        temp_dir.path(),
+    );
+    assert_failure(&output, "vudo summon (not a Spirit name)");
+    assert_eq!(
+        fs::read_dir(temp_dir.path()).unwrap().count(),
+        0,
         "summon must not write a placeholder package"
     );
 }
